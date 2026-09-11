@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<title>плеєр</title>
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; background: transparent; }
+  iframe { width: 100vw; height: 100vh; border: 0; display: block; }
+</style>
+</head>
+<body>
+<!--
+  Керування: міняй параметр у URL цього джерела в OBS.
+
+  YouTube:   player.html?v=VIDEOID
+  SoundCloud: player.html?sc=https://soundcloud.com/.../track
+
+  Приклад: http://localhost:8000/player.html?v=n0QKxyGmk6g
+-->
+<script>
+  const params = new URLSearchParams(location.search);
+  const videoId = params.get('v');
+  const scUrl = params.get('sc');
+  const iframe = document.createElement('iframe');
+  iframe.allow = 'autoplay; encrypted-media';
+  iframe.referrerPolicy = 'strict-origin-when-cross-origin';
+  iframe.allowFullscreen = true;
+
+  if (videoId) {
+    iframe.src = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&mute=0&rel=0`;
+  } else if (scUrl) {
+    iframe.src = `https://w.soundcloud.com/player/?url=${encodeURIComponent(scUrl)}&auto_play=true&hide_related=true&show_comments=false&show_user=false`;
+  }
+
+  if (iframe.src) document.body.appendChild(iframe);
+</script>
+</body>
+</html>
