@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<title>yarosfactory — панель музики</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, sans-serif; background: #16181c; color: #e6e6e6; padding: 14px; }
+  h2 { font-size: 13px; color: #9aa0a8; margin: 18px 0 8px; }
+  #status { font-size: 12px; color: #9aa0a8; margin-bottom: 10px; }
+  #status.connected { color: #5fbf6f; }
+  #status.disconnected { color: #d9534f; }
+
+  #current { background: #1f2226; border: 1px solid #2b2f35; border-radius: 6px; padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  #current .title { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #current .sub { font-size: 12px; color: #9aa0a8; margin-top: 2px; }
+  #current .controls { display: flex; gap: 6px; flex-shrink: 0; }
+
+  button { background: #2b2f35; color: #e6e6e6; border: 1px solid #383d44; border-radius: 4px; padding: 6px 10px; font-size: 12px; cursor: pointer; }
+  button:hover { background: #383d44; }
+  button.danger { border-color: #7a2c2c; color: #e08b8b; }
+  button.danger:hover { background: #3a2323; }
+
+  #add-form { display: flex; gap: 6px; margin-bottom: 4px; flex-wrap: wrap; }
+  #add-form input { background: #1f2226; border: 1px solid #2b2f35; color: #e6e6e6; border-radius: 4px; padding: 6px 8px; font-size: 12px; }
+  #add-form input[name="url"] { flex: 1; min-width: 200px; }
+  #add-form input[name="requestedBy"] { width: 110px; }
+
+  #queue { display: flex; flex-direction: column; gap: 6px; }
+  .queue-item { background: #1f2226; border: 1px solid #2b2f35; border-radius: 6px; padding: 8px 10px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .queue-item .info { min-width: 0; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .queue-item .who { color: #9aa0a8; }
+  .queue-item .controls { display: flex; gap: 4px; flex-shrink: 0; }
+  #empty { color: #6b7178; font-size: 12.5px; }
+
+  #bans { display: flex; flex-direction: column; gap: 10px; }
+  .ban-group { font-size: 12.5px; }
+  .ban-group .label { color: #9aa0a8; margin-bottom: 4px; }
+  .ban-chip { display: inline-flex; align-items: center; gap: 6px; background: #2b2f35; border-radius: 12px; padding: 3px 8px 3px 10px; margin: 0 6px 6px 0; font-size: 12px; }
+  .ban-chip button { padding: 0 4px; border: none; background: none; color: #e08b8b; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<div id="status" class="disconnected">З'єднання...</div>
+
+<h2>Поточний трек</h2>
+<div id="current">
+  <div>
+    <div class="title" id="cur-title">—</div>
+    <div class="sub" id="cur-sub"></div>
+  </div>
+  <div class="controls">
+    <button id="btn-pause">Пауза</button>
+    <button id="btn-resume">Відтворити</button>
+    <button id="btn-skip">Далі ⏭</button>
+  </div>
+</div>
+
+<h2>Додати трек вручну</h2>
+<form id="add-form">
+  <input type="text" name="url" placeholder="Посилання YouTube або SoundCloud" required>
+  <input type="text" name="requestedBy" placeholder="Хто замовив">
+  <button type="submit">Додати</button>
+</form>
+
+<h2>Черга (<span id="queue-count">0</span>)</h2>
+<div id="queue"><div id="empty">Черга порожня.</div></div>
+
+<h2>Бан-листи</h2>
+<div id="bans">
+  <div class="ban-group"><div class="label">Заблоковані глядачі</div><div id="ban-users"></div></div>
+  <div class="ban-group"><div class="label">Заблоковані виконавці</div><div id="ban-artists"></div></div>
+  <div class="ban-group"><div class="label">Заблоковані пісні</div><div id="ban-songs"></div></div>
+</div>
+
+<script>
+  const params = new URLSearchParams(location.search);
+  const sbPort = params.get('sb') || 8080;
+  const statusEl = document.getElementById('status');
+  let ws;
+
+  function connect() {
+    ws = new WebSocket('ws://127.0.0.1:' + sbPort + '/');
+    ws.onopen = () => {
+      statusEl.textContent = 'Підключено до Streamer.bot';
+      statusEl.className = 'connected';
+      ws.send(JSON.stringify({ request: 'Subscribe', id: 'sub-panel', events: { General: ['Custom'] } }));
+    };
+    ws.onclose = () => { statusEl.textContent = "Немає з'єднання зі Streamer.bot — перепідключення..."; statusEl.className = 'disconnected'; setTimeout(connect, 2000); };
+    ws.onerror = () => ws.close();
+    ws.onmessage = (ev) => {
+      const msg = JSON.parse(ev.data);
+      if (msg.event && msg.event.source === 'General' && msg.event.type === 'Custom' && msg.data && msg.data.event === 'state') {
+        render(msg.data);
+      }
+    };
+  }
+
+  function doAction(actionArgs) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ request: 'DoAction', id: 'panel-' + Date.now(), action: { name: 'Music - Handle' }, args: actionArgs }));
+    }
+  }
+
+  function trackLabel(t) { return t.title || (t.source === 'youtube' ? 'YouTube: ' + t.videoId : t.trackUrl); }
+
+  function render(state) {
+    const cur = state.current;
+    document.getElementById('cur-title').textContent = cur ? trackLabel(cur) : 'Нічого не грає';
+    document.getElementById('cur-sub').textContent = cur ? [cur.artist, cur.requestedBy ? ('замовив: ' + cur.requestedBy) : ''].filter(Boolean).join(' · ') : '';
+
+    const queueEl = document.getElementById('queue');
+    document.getElementById('queue-count').textContent = state.queue.length;
+    queueEl.innerHTML = '';
+    if (state.queue.length === 0) {
+      queueEl.innerHTML = '<div id="empty">Черга порожня.</div>';
+    } else {
+      state.queue.forEach((t) => {
+        const row = document.createElement('div');
+        row.className = 'queue-item';
+        row.innerHTML = `
+          <div class="info">${escapeHtml(trackLabel(t))} <span class="who">${t.requestedBy ? '· ' + escapeHtml(t.requestedBy) : ''}</span></div>
+          <div class="controls">
+            <button data-action="ban-song" data-value="${escapeHtml(t.title || '')}">Бан пісні</button>
+            <button data-action="ban-artist" data-value="${escapeHtml(t.artist || '')}">Бан виконавця</button>
+            <button data-action="ban-user" data-value="${escapeHtml(t.requestedBy || '')}">Бан глядача</button>
+          </div>`;
+        queueEl.appendChild(row);
+      });
+    }
+
+    renderBanGroup('ban-users', state.bans.users, 'user');
+    renderBanGroup('ban-artists', state.bans.artists, 'artist');
+    renderBanGroup('ban-songs', state.bans.songs, 'song');
+  }
+
+  function renderBanGroup(elId, values, type) {
+    const el = document.getElementById(elId);
+    el.innerHTML = values.length
+      ? values.map((v) => `<span class="ban-chip">${escapeHtml(v)}<button data-action="unban" data-type="${type}" data-value="${escapeHtml(v)}">✕</button></span>`).join('')
+      : '<span style="color:#6b7178">немає</span>';
+  }
+
+  function escapeHtml(s) { return String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+  document.body.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-action]');
+    if (!btn) return;
+    const action = btn.dataset.action;
+    if (action === 'unban') doAction({ cmd: 'unban', banType: btn.dataset.type, value: btn.dataset.value });
+    if (action.startsWith('ban-')) {
+      const type = action.replace('ban-', '');
+      const value = prompt('Забанити (' + type + '):', btn.dataset.value || '');
+      if (value) doAction({ cmd: 'ban', banType: type, value });
+    }
+  });
+
+  document.getElementById('btn-pause').onclick  = () => doAction({ cmd: 'pause' });
+  document.getElementById('btn-resume').onclick = () => doAction({ cmd: 'resume' });
+  document.getElementById('btn-skip').onclick   = () => doAction({ cmd: 'skip' });
+
+  document.getElementById('add-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const form = e.target;
+    doAction({ cmd: 'add', url: form.url.value.trim(), requestedBy: form.requestedBy.value.trim() });
+    form.url.value = '';
+  });
+
+  connect();
+</script>
+</body>
+</html>
