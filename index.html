@@ -166,11 +166,15 @@
   // directly; SoundCloud has to ask its widget asynchronously).
   function startProgressReporting(getValues) {
     clearInterval(progressInterval);
-    progressInterval = setInterval(() => {
+    function tick() {
       getValues((position, duration) => {
-        doAction('Music - Handle', { cmd: 'progress', position: position || 0, duration: duration || 0 });
+        const pos = Number.isFinite(position) ? position : 0;
+        const dur = Number.isFinite(duration) ? duration : 0;
+        doAction('Music - Handle', { cmd: 'progress', position: pos, duration: dur });
       });
-    }, 1000);
+    }
+    tick(); // don't wait a full second for the first update
+    progressInterval = setInterval(tick, 1000);
   }
 
   // ---------- SoundCloud (iframe widget, unchanged) ----------
