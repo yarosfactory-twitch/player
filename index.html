@@ -18,6 +18,9 @@
          відео на YouTube рідко є один файл з обома одразу) — грається парою <video>+<audio>,
          синхронізовано, без YouTube-плеєра й реклами
     {event:"play", source:"soundcloud", trackUrl:"..."}        <- як і раніше, через SoundCloud Widget iframe
+    {event:"preload", videoStreamUrl:"...", audioStreamUrl:"..."}
+      <- наступний YouTube-трек буферизується заздалегідь у фоні, поки грає поточний;
+         коли прийде відповідний "play" з тими самими лінками, старт буде миттєвим
     {event:"pause"} / {event:"resume"} / {event:"stop"}
 
   Ручний тест без Streamer.bot (стара іфрейм-версія YouTube, ТІЛЬКИ для перевірки з'єднання — з рекламою):
@@ -37,6 +40,9 @@
   let videoEl = null;         // video-only stream (yt-dlp) — muted, visual only
   let audioEl = null;         // audio-only stream (yt-dlp) — actual sound, also the sync master
   let syncInterval = null;
+  let preloadVideoEl = null;  // next track's video, buffering quietly in the background (not in the DOM)
+  let preloadAudioEl = null;
+  let preloadUrls = null;     // { videoStreamUrl, audioStreamUrl } of what's currently preloading
   let ws = null;
   let currentTrack = null;    // { source, videoStreamUrl, audioStreamUrl } | { source, trackUrl } | { source, videoId } (manual)
   let paused = false;
@@ -54,32 +60,45 @@
 
   // ---------- direct dual-stream (yt-dlp) playback — no YouTube player, no ads ----------
   // Modern YouTube uploads rarely have one file with both video and audio, so we
-  // play a video-only stream (muted) and an audio-only stream side by side. To start
-  // as close together as possible, we wait for both to report "canplay" before calling
-  // play() on both in the same tick, rather than letting each autoplay independently.
+  // play a video-only stream (muted) and an audio-only stream side by side. If this
+  // exact pair was already preloading in the background, we reuse those elements
+  // (already buffered, near-instant start) instead of creating fresh ones.
   function playDualStream(videoUrl, audioUrl) {
     ytPlayer = null;
     scWidget = null;
     currentTrack = { source: 'youtube-direct', videoStreamUrl: videoUrl, audioStreamUrl: audioUrl };
     paused = false;
     clearInterval(syncInterval);
-    document.body.innerHTML = '';
+    document.body.innerHTML = ''; // safe — preload elements are never appended to the DOM
 
-    videoEl = document.createElement('video');
-    videoEl.src = videoUrl;
-    videoEl.muted = true; // video-only stream has no audio track anyway; muted just to be safe
+    const usingPreload = !!(preloadUrls && preloadUrls.videoStreamUrl === videoUrl &&
+      preloadUrls.audioStreamUrl === audioUrl && preloadVideoEl && preloadAudioEl);
+
+    if (usingPreload) {
+      videoEl = preloadVideoEl;
+      audioEl = preloadAudioEl;
+    } else {
+      videoEl = document.createElement('video');
+      videoEl.src = videoUrl;
+      videoEl.muted = true; // video-only stream has no audio track anyway; muted just to be safe
+      videoEl.preload = 'auto';
+
+      audioEl = document.createElement('audio');
+      audioEl.src = audioUrl;
+      audioEl.preload = 'auto';
+    }
     videoEl.controls = false;
-    videoEl.preload = 'auto';
-    document.body.appendChild(videoEl);
-
-    audioEl = document.createElement('audio');
-    audioEl.src = audioUrl;
-    audioEl.preload = 'auto';
     audioEl.addEventListener('ended', sendEnded);
+    document.body.appendChild(videoEl);
     document.body.appendChild(audioEl);
 
-    let videoReady = false;
-    let audioReady = false;
+    preloadVideoEl = null;
+    preloadAudioEl = null;
+    preloadUrls = null;
+
+    // readyState >= 3 (HAVE_FUTURE_DATA) means enough is buffered to start right away
+    let videoReady = usingPreload && videoEl.readyState >= 3;
+    let audioReady = usingPreload && audioEl.readyState >= 3;
     let started = false;
 
     function tryStart() {
@@ -91,10 +110,31 @@
       startSyncLoop();
     }
 
-    videoEl.addEventListener('canplay', () => { videoReady = true; tryStart(); }, { once: true });
-    audioEl.addEventListener('canplay', () => { audioReady = true; tryStart(); }, { once: true });
-    // fallback in case one stream's canplay never fires — don't hang forever
-    setTimeout(() => { videoReady = true; audioReady = true; tryStart(); }, 4000);
+    if (videoReady && audioReady) {
+      tryStart();
+    } else {
+      videoEl.addEventListener('canplay', () => { videoReady = true; tryStart(); }, { once: true });
+      audioEl.addEventListener('canplay', () => { audioReady = true; tryStart(); }, { once: true });
+      // fallback in case one stream's canplay never fires — don't hang forever
+      setTimeout(() => { videoReady = true; audioReady = true; tryStart(); }, 4000);
+    }
+  }
+
+  // Quietly starts buffering the next track's streams in the background (not attached
+  // to the DOM, not playing) so that when it's actually time to play it, playDualStream
+  // above can reuse these already-buffered elements instead of starting from zero.
+  function preloadDualStream(videoUrl, audioUrl) {
+    if (preloadUrls && preloadUrls.videoStreamUrl === videoUrl && preloadUrls.audioStreamUrl === audioUrl) return;
+    preloadUrls = { videoStreamUrl: videoUrl, audioStreamUrl: audioUrl };
+
+    preloadVideoEl = document.createElement('video');
+    preloadVideoEl.src = videoUrl;
+    preloadVideoEl.muted = true;
+    preloadVideoEl.preload = 'auto';
+
+    preloadAudioEl = document.createElement('audio');
+    preloadAudioEl.src = audioUrl;
+    preloadAudioEl.preload = 'auto';
   }
 
   function startSyncLoop() {
@@ -217,6 +257,7 @@
         const data = msg.data || {};
         if (data.event === 'play' && data.source === 'youtube-direct') playDualStream(data.videoStreamUrl, data.audioStreamUrl);
         else if (data.event === 'play' && data.source === 'soundcloud') playSoundcloud(data.trackUrl);
+        else if (data.event === 'preload') preloadDualStream(data.videoStreamUrl, data.audioStreamUrl);
         else if (data.event === 'pause') pausePlayback();
         else if (data.event === 'resume') resumePlayback();
         else if (data.event === 'stop') stopPlayback();
