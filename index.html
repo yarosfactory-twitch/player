@@ -23,9 +23,9 @@
   let ytApiReady = false;
   let pendingYt = null;
   let scWidget = null;
-  let scReady = false;
-  let pendingScAction = null;
   let ws = null;
+  let currentTrack = null; // { source, videoId, trackUrl }
+  let paused = false;
 
   function mountIframe(src, allow) {
     document.body.innerHTML = '';
@@ -57,16 +57,19 @@
   }
 
   function playYoutube(videoId) {
+    ytPlayer = null;
     scWidget = null;
+    currentTrack = { source: 'youtube', videoId: videoId };
+    paused = false;
     if (!ytApiReady) { pendingYt = videoId; return; }
-    if (ytPlayer && ytPlayer.loadVideoById) ytPlayer.loadVideoById(videoId);
-    else createYtPlayer(videoId);
+    createYtPlayer(videoId);
   }
 
   function playSoundcloud(trackUrl) {
     ytPlayer = null;
-    scReady = false;
-    pendingScAction = null;
+    scWidget = null;
+    currentTrack = { source: 'soundcloud', trackUrl: trackUrl };
+    paused = false;
     const iframe = mountIframe(
       'https://w.soundcloud.com/player/?url=' + encodeURIComponent(trackUrl) +
       '&auto_play=true&hide_related=true&show_comments=false&show_user=false',
@@ -76,32 +79,44 @@
   }
 
   function bindScWidget(iframe) {
-    // SC's widget API script loads independently of the iframe itself;
-    // don't assume it's ready just because the iframe fired onload.
     if (typeof SC === 'undefined' || !SC.Widget) {
       setTimeout(() => bindScWidget(iframe), 150);
       return;
     }
     scWidget = SC.Widget(iframe);
-    scReady = false;
-    scWidget.bind(SC.Widget.Events.READY, () => {
-      scReady = true;
-      if (pendingScAction === 'pause') scWidget.pause();
-      else if (pendingScAction === 'resume') scWidget.play();
-      pendingScAction = null;
-    });
     scWidget.bind(SC.Widget.Events.FINISH, sendEnded);
   }
 
-  function pausePlayback()  {
-    if (ytPlayer && ytPlayer.pauseVideo) ytPlayer.pauseVideo();
-    if (scWidget) { if (scReady) scWidget.pause(); else pendingScAction = 'pause'; }
+  // Pause/resume don't rely on postMessage commands to an already-running
+  // player (unreliable in this setup) — pause tears the player down entirely
+  // (guaranteed silence), resume rebuilds the same track from scratch.
+  function pausePlayback() {
+    if (!currentTrack) return;
+    paused = true;
+    document.body.innerHTML = '';
+    ytPlayer = null;
+    scWidget = null;
   }
   function resumePlayback() {
-    if (ytPlayer && ytPlayer.playVideo) ytPlayer.playVideo();
-    if (scWidget) { if (scReady) scWidget.play(); else pendingScAction = 'resume'; }
+    if (!currentTrack || !paused) return;
+    paused = false;
+    if (currentTrack.source === 'youtube') createYtPlayer(currentTrack.videoId);
+    else if (currentTrack.source === 'soundcloud') {
+      const iframe = mountIframe(
+        'https://w.soundcloud.com/player/?url=' + encodeURIComponent(currentTrack.trackUrl) +
+        '&auto_play=true&hide_related=true&show_comments=false&show_user=false',
+        'autoplay'
+      );
+      bindScWidget(iframe);
+    }
   }
-  function stopPlayback()   { document.body.innerHTML = ''; ytPlayer = null; scWidget = null; scReady = false; pendingScAction = null; }
+  function stopPlayback() {
+    document.body.innerHTML = '';
+    ytPlayer = null;
+    scWidget = null;
+    currentTrack = null;
+    paused = false;
+  }
 
   // ---------- Streamer.bot WebSocket ----------
   function sendEnded() {
