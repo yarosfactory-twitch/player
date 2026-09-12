@@ -88,7 +88,7 @@
       audioEl.preload = 'auto';
     }
     videoEl.controls = false;
-    audioEl.addEventListener('ended', sendEnded);
+    audioEl.addEventListener('ended', handleDualStreamEnded);
     document.body.appendChild(videoEl);
     document.body.appendChild(audioEl);
 
@@ -117,6 +117,18 @@
       // fallback in case one stream's canplay never fires — don't hang forever
       setTimeout(() => { videoReady = true; audioReady = true; tryStart(); }, 4000);
     }
+  }
+
+  // Called when the current youtube-direct track finishes. If the next track is
+  // already sitting preloaded, switch to it immediately — no need to wait for
+  // Streamer.bot's round-trip "play" response, since we already have everything
+  // we need locally. We still notify Streamer.bot in parallel so it can advance
+  // its own queue bookkeeping and preload whatever comes after this.
+  function handleDualStreamEnded() {
+    if (preloadUrls && preloadVideoEl && preloadAudioEl) {
+      playDualStream(preloadUrls.videoStreamUrl, preloadUrls.audioStreamUrl);
+    }
+    sendEnded();
   }
 
   // Quietly starts buffering the next track's streams in the background (not attached
@@ -254,7 +266,11 @@
         try { msg = JSON.parse(ev.data); } catch (e) { return; }
         if (!msg.event || msg.event.source !== 'General' || msg.event.type !== 'Custom') return;
         const data = msg.data || {};
-        if (data.event === 'play' && data.source === 'youtube-direct') playDualStream(data.videoStreamUrl, data.audioStreamUrl);
+        if (data.event === 'play' && data.source === 'youtube-direct') {
+          const alreadyPlayingThis = currentTrack && currentTrack.source === 'youtube-direct' &&
+            currentTrack.videoStreamUrl === data.videoStreamUrl && currentTrack.audioStreamUrl === data.audioStreamUrl && !paused;
+          if (!alreadyPlayingThis) playDualStream(data.videoStreamUrl, data.audioStreamUrl);
+        }
         else if (data.event === 'play' && data.source === 'soundcloud') playSoundcloud(data.trackUrl);
         else if (data.event === 'preload') preloadDualStream(data.videoStreamUrl, data.audioStreamUrl);
         else if (data.event === 'pause') pausePlayback();
