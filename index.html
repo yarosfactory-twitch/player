@@ -68,10 +68,18 @@
       '&auto_play=true&hide_related=true&show_comments=false&show_user=false',
       'autoplay'
     );
-    iframe.onload = () => {
-      scWidget = SC.Widget(iframe);
-      scWidget.bind(SC.Widget.Events.FINISH, sendEnded);
-    };
+    bindScWidget(iframe);
+  }
+
+  function bindScWidget(iframe) {
+    // SC's widget API script loads independently of the iframe itself;
+    // don't assume it's ready just because the iframe fired onload.
+    if (typeof SC === 'undefined' || !SC.Widget) {
+      setTimeout(() => bindScWidget(iframe), 150);
+      return;
+    }
+    scWidget = SC.Widget(iframe);
+    scWidget.bind(SC.Widget.Events.FINISH, sendEnded);
   }
 
   function pausePlayback()  { if (ytPlayer && ytPlayer.pauseVideo) ytPlayer.pauseVideo(); if (scWidget && scWidget.pause) scWidget.pause(); }
