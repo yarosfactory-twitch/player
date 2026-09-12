@@ -10,29 +10,125 @@
 </head>
 <body>
 <!--
-  Керування: міняй параметр у URL цього джерела в OBS.
-
-  YouTube:   player.html?v=VIDEOID
-  SoundCloud: player.html?sc=https://soundcloud.com/.../track
-
-  Приклад: http://localhost:8000/player.html?v=n0QKxyGmk6g
+  Підключення: player.html?sb=PORT  (за замовчуванням 8080 — порт WebSocket Server у Streamer.bot)
+  Ручний тест без Streamer.bot: player.html?v=VIDEOID або player.html?sc=URL
 -->
 <script>
   const params = new URLSearchParams(location.search);
-  const videoId = params.get('v');
-  const scUrl = params.get('sc');
-  const iframe = document.createElement('iframe');
-  iframe.allow = 'autoplay; encrypted-media';
-  iframe.referrerPolicy = 'strict-origin-when-cross-origin';
-  iframe.allowFullscreen = true;
+  const manualVideoId = params.get('v');
+  const manualScUrl = params.get('sc');
+  const sbPort = params.get('sb') || 8080;
 
-  if (videoId) {
-    iframe.src = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&mute=0&rel=0`;
-  } else if (scUrl) {
-    iframe.src = `https://w.soundcloud.com/player/?url=${encodeURIComponent(scUrl)}&auto_play=true&hide_related=true&show_comments=false&show_user=false`;
+  let ytPlayer = null;
+  let ytApiReady = false;
+  let pendingYt = null;
+  let scWidget = null;
+  let ws = null;
+
+  function mountIframe(src, allow) {
+    document.body.innerHTML = '';
+    const iframe = document.createElement('iframe');
+    iframe.allow = allow || 'autoplay; encrypted-media';
+    iframe.referrerPolicy = 'strict-origin-when-cross-origin';
+    iframe.allowFullscreen = true;
+    iframe.src = src;
+    document.body.appendChild(iframe);
+    return iframe;
   }
 
-  if (iframe.src) document.body.appendChild(iframe);
+  window.onYouTubeIframeAPIReady = function () {
+    ytApiReady = true;
+    if (pendingYt) { createYtPlayer(pendingYt); pendingYt = null; }
+  };
+
+  function createYtPlayer(videoId) {
+    document.body.innerHTML = '<div id="yt-target" style="width:100vw;height:100vh;"></div>';
+    ytPlayer = new YT.Player('yt-target', {
+      width: '100%',
+      height: '100%',
+      videoId: videoId,
+      playerVars: { autoplay: 1, controls: 0, modestbranding: 1, rel: 0, origin: location.origin },
+      events: {
+        onStateChange: (e) => { if (e.data === YT.PlayerState.ENDED) sendEnded(); }
+      }
+    });
+  }
+
+  function playYoutube(videoId) {
+    scWidget = null;
+    if (!ytApiReady) { pendingYt = videoId; return; }
+    if (ytPlayer && ytPlayer.loadVideoById) ytPlayer.loadVideoById(videoId);
+    else createYtPlayer(videoId);
+  }
+
+  function playSoundcloud(trackUrl) {
+    ytPlayer = null;
+    const iframe = mountIframe(
+      'https://w.soundcloud.com/player/?url=' + encodeURIComponent(trackUrl) +
+      '&auto_play=true&hide_related=true&show_comments=false&show_user=false',
+      'autoplay'
+    );
+    iframe.onload = () => {
+      scWidget = SC.Widget(iframe);
+      scWidget.bind(SC.Widget.Events.FINISH, sendEnded);
+    };
+  }
+
+  function pausePlayback()  { if (ytPlayer && ytPlayer.pauseVideo) ytPlayer.pauseVideo(); if (scWidget && scWidget.pause) scWidget.pause(); }
+  function resumePlayback() { if (ytPlayer && ytPlayer.playVideo) ytPlayer.playVideo();   if (scWidget && scWidget.play) scWidget.play(); }
+  function stopPlayback()   { document.body.innerHTML = ''; ytPlayer = null; scWidget = null; }
+
+  // ---------- Streamer.bot WebSocket ----------
+  function sendEnded() {
+    doAction('Music - Handle', { cmd: 'ended' });
+  }
+
+  function doAction(name, actionArgs) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({
+      request: 'DoAction',
+      id: 'player-' + Date.now(),
+      action: { name: name },
+      args: actionArgs
+    }));
+  }
+
+  function connectWs() {
+    try {
+      ws = new WebSocket('ws://127.0.0.1:' + sbPort + '/');
+      ws.onopen = () => {
+        ws.send(JSON.stringify({ request: 'Subscribe', id: 'sub-player', events: { General: ['Custom'] } }));
+      };
+      ws.onmessage = (ev) => {
+        let msg;
+        try { msg = JSON.parse(ev.data); } catch (e) { return; }
+        if (!msg.event || msg.event.source !== 'General' || msg.event.type !== 'Custom') return;
+        const data = msg.data || {};
+        if (data.event === 'play' && data.source === 'youtube') playYoutube(data.videoId);
+        else if (data.event === 'play' && data.source === 'soundcloud') playSoundcloud(data.trackUrl);
+        else if (data.event === 'pause') pausePlayback();
+        else if (data.event === 'resume') resumePlayback();
+        else if (data.event === 'stop') stopPlayback();
+      };
+      ws.onclose = () => setTimeout(connectWs, 2000);
+      ws.onerror = () => ws.close();
+    } catch (e) {
+      setTimeout(connectWs, 2000);
+    }
+  }
+
+  // ---------- boot ----------
+  if (manualVideoId) {
+    const s1 = document.createElement('script'); s1.src = 'https://www.youtube.com/iframe_api'; document.head.appendChild(s1);
+    const wait = setInterval(() => { if (ytApiReady) { clearInterval(wait); playYoutube(manualVideoId); } }, 150);
+  } else if (manualScUrl) {
+    const s2 = document.createElement('script'); s2.src = 'https://w.soundcloud.com/player/api.js'; document.head.appendChild(s2);
+    setTimeout(() => playSoundcloud(manualScUrl), 500);
+  } else {
+    const s1 = document.createElement('script'); s1.src = 'https://www.youtube.com/iframe_api'; document.head.appendChild(s1);
+    const s2 = document.createElement('script'); s2.src = 'https://w.soundcloud.com/player/api.js'; document.head.appendChild(s2);
+  }
+  connectWs();
 </script>
 </body>
 </html>
