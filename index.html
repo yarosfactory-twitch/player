@@ -5,13 +5,24 @@
 <title>плеєр</title>
 <style>
   html, body { margin: 0; padding: 0; overflow: hidden; background: transparent; }
-  iframe { width: 100vw; height: 100vh; border: 0; display: block; }
+  iframe, video { width: 100vw; height: 100vh; border: 0; display: block; object-fit: contain; background: transparent; }
 </style>
 </head>
 <body>
 <!--
   Підключення: player.html?sb=PORT  (за замовчуванням 8080 — порт WebSocket Server у Streamer.bot)
-  Ручний тест без Streamer.bot: player.html?v=VIDEOID або player.html?sc=URL
+
+  Основний потік (від Streamer.bot):
+    {event:"play", source:"youtube-direct", videoStreamUrl:"...", audioStreamUrl:"..."}
+      <- два окремі прямі лінки від yt-dlp (відео без звуку + звук окремо, бо в сучасних
+         відео на YouTube рідко є один файл з обома одразу) — грається парою <video>+<audio>,
+         синхронізовано, без YouTube-плеєра й реклами
+    {event:"play", source:"soundcloud", trackUrl:"..."}        <- як і раніше, через SoundCloud Widget iframe
+    {event:"pause"} / {event:"resume"} / {event:"stop"}
+
+  Ручний тест без Streamer.bot (стара іфрейм-версія YouTube, ТІЛЬКИ для перевірки з'єднання — з рекламою):
+    player.html?v=VIDEOID
+    player.html?sc=URL
 -->
 <script>
   const params = new URLSearchParams(location.search);
@@ -19,12 +30,15 @@
   const manualScUrl = params.get('sc');
   const sbPort = params.get('sb') || 8080;
 
-  let ytPlayer = null;
+  let ytPlayer = null;        // manual-test iframe path only
   let ytApiReady = false;
   let pendingYt = null;
   let scWidget = null;
+  let videoEl = null;         // video-only stream (yt-dlp) — muted, visual only
+  let audioEl = null;         // audio-only stream (yt-dlp) — actual sound, also the sync master
+  let syncInterval = null;
   let ws = null;
-  let currentTrack = null; // { source, videoId, trackUrl }
+  let currentTrack = null;    // { source, videoStreamUrl, audioStreamUrl } | { source, trackUrl } | { source, videoId } (manual)
   let paused = false;
 
   function mountIframe(src, allow) {
@@ -38,36 +52,42 @@
     return iframe;
   }
 
-  window.onYouTubeIframeAPIReady = function () {
-    ytApiReady = true;
-    if (pendingYt) { createYtPlayer(pendingYt); pendingYt = null; }
-  };
-
-  function createYtPlayer(videoId) {
-    document.body.innerHTML = '<div id="yt-target" style="width:100vw;height:100vh;"></div>';
-    ytPlayer = new YT.Player('yt-target', {
-      width: '100%',
-      height: '100%',
-      videoId: videoId,
-      playerVars: { autoplay: 1, controls: 0, modestbranding: 1, rel: 0, origin: location.origin },
-      events: {
-        onStateChange: (e) => { if (e.data === YT.PlayerState.ENDED) sendEnded(); }
-      }
-    });
-  }
-
-  function playYoutube(videoId) {
+  // ---------- direct dual-stream (yt-dlp) playback — no YouTube player, no ads ----------
+  // Modern YouTube uploads rarely have one file with both video and audio, so we
+  // play a video-only stream (muted) and an audio-only stream side by side, and
+  // nudge the video back in sync with the audio (the "master clock") every second.
+  function playDualStream(videoUrl, audioUrl) {
     ytPlayer = null;
     scWidget = null;
-    currentTrack = { source: 'youtube', videoId: videoId };
+    currentTrack = { source: 'youtube-direct', videoStreamUrl: videoUrl, audioStreamUrl: audioUrl };
     paused = false;
-    if (!ytApiReady) { pendingYt = videoId; return; }
-    createYtPlayer(videoId);
+    clearInterval(syncInterval);
+    document.body.innerHTML = '';
+
+    videoEl = document.createElement('video');
+    videoEl.src = videoUrl;
+    videoEl.autoplay = true;
+    videoEl.muted = true; // video-only stream has no audio track anyway; muted just to be safe
+    videoEl.controls = false;
+    document.body.appendChild(videoEl);
+
+    audioEl = document.createElement('audio');
+    audioEl.src = audioUrl;
+    audioEl.autoplay = true;
+    audioEl.addEventListener('ended', sendEnded);
+    document.body.appendChild(audioEl);
+
+    syncInterval = setInterval(() => {
+      if (!videoEl || !audioEl || videoEl.paused || audioEl.paused) return;
+      const drift = videoEl.currentTime - audioEl.currentTime;
+      if (Math.abs(drift) > 0.3) videoEl.currentTime = audioEl.currentTime;
+    }, 1000);
   }
 
+  // ---------- SoundCloud (iframe widget, unchanged) ----------
   function playSoundcloud(trackUrl) {
     ytPlayer = null;
-    scWidget = null;
+    videoEl = null;
     currentTrack = { source: 'soundcloud', trackUrl: trackUrl };
     paused = false;
     const iframe = mountIframe(
@@ -87,12 +107,41 @@
     scWidget.bind(SC.Widget.Events.FINISH, sendEnded);
   }
 
-  // Pause/resume don't rely on postMessage commands to an already-running
-  // player (unreliable in this setup) — pause tears the player down entirely
-  // (guaranteed silence), resume rebuilds the same track from scratch.
+  // ---------- manual-test-only YouTube iframe path (has ads, kept only for quick ws-less testing) ----------
+  window.onYouTubeIframeAPIReady = function () {
+    ytApiReady = true;
+    if (pendingYt) { createYtPlayer(pendingYt); pendingYt = null; }
+  };
+  function createYtPlayer(videoId) {
+    document.body.innerHTML = '<div id="yt-target" style="width:100vw;height:100vh;"></div>';
+    videoEl = null;
+    ytPlayer = new YT.Player('yt-target', {
+      width: '100%', height: '100%', videoId: videoId,
+      playerVars: { autoplay: 1, controls: 0, modestbranding: 1, rel: 0, origin: location.origin },
+      events: { onStateChange: (e) => { if (e.data === YT.PlayerState.ENDED) sendEnded(); } }
+    });
+  }
+  function playYoutubeManual(videoId) {
+    scWidget = null;
+    currentTrack = { source: 'youtube-manual', videoId: videoId };
+    paused = false;
+    if (!ytApiReady) { pendingYt = videoId; return; }
+    createYtPlayer(videoId);
+  }
+
+  // ---------- pause / resume / stop ----------
+  // youtube-direct uses real <video>/<audio> elements in our own document, so
+  // pause()/play() work directly and reliably (no cross-origin postMessage involved).
+  // soundcloud (iframe widget) and the manual YouTube iframe path stay on the
+  // teardown-and-rebuild approach, since their runtime commands proved unreliable.
   function pausePlayback() {
     if (!currentTrack) return;
     paused = true;
+    if (videoEl || audioEl) {
+      if (videoEl) videoEl.pause();
+      if (audioEl) audioEl.pause();
+      return;
+    }
     document.body.innerHTML = '';
     ytPlayer = null;
     scWidget = null;
@@ -100,37 +149,37 @@
   function resumePlayback() {
     if (!currentTrack || !paused) return;
     paused = false;
-    if (currentTrack.source === 'youtube') createYtPlayer(currentTrack.videoId);
-    else if (currentTrack.source === 'soundcloud') {
+    if (currentTrack.source === 'youtube-direct') {
+      if (videoEl && audioEl) { videoEl.play(); audioEl.play(); }
+      else playDualStream(currentTrack.videoStreamUrl, currentTrack.audioStreamUrl);
+    } else if (currentTrack.source === 'soundcloud') {
       const iframe = mountIframe(
         'https://w.soundcloud.com/player/?url=' + encodeURIComponent(currentTrack.trackUrl) +
         '&auto_play=true&hide_related=true&show_comments=false&show_user=false',
         'autoplay'
       );
       bindScWidget(iframe);
+    } else if (currentTrack.source === 'youtube-manual') {
+      createYtPlayer(currentTrack.videoId);
     }
   }
   function stopPlayback() {
+    clearInterval(syncInterval);
     document.body.innerHTML = '';
     ytPlayer = null;
     scWidget = null;
+    videoEl = null;
+    audioEl = null;
     currentTrack = null;
     paused = false;
   }
 
   // ---------- Streamer.bot WebSocket ----------
-  function sendEnded() {
-    doAction('Music - Handle', { cmd: 'ended' });
-  }
+  function sendEnded() { doAction('Music - Handle', { cmd: 'ended' }); }
 
   function doAction(name, actionArgs) {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    ws.send(JSON.stringify({
-      request: 'DoAction',
-      id: 'player-' + Date.now(),
-      action: { name: name },
-      args: actionArgs
-    }));
+    ws.send(JSON.stringify({ request: 'DoAction', id: 'player-' + Date.now(), action: { name: name }, args: actionArgs }));
   }
 
   function connectWs() {
@@ -144,7 +193,7 @@
         try { msg = JSON.parse(ev.data); } catch (e) { return; }
         if (!msg.event || msg.event.source !== 'General' || msg.event.type !== 'Custom') return;
         const data = msg.data || {};
-        if (data.event === 'play' && data.source === 'youtube') playYoutube(data.videoId);
+        if (data.event === 'play' && data.source === 'youtube-direct') playDualStream(data.videoStreamUrl, data.audioStreamUrl);
         else if (data.event === 'play' && data.source === 'soundcloud') playSoundcloud(data.trackUrl);
         else if (data.event === 'pause') pausePlayback();
         else if (data.event === 'resume') resumePlayback();
@@ -160,12 +209,11 @@
   // ---------- boot ----------
   if (manualVideoId) {
     const s1 = document.createElement('script'); s1.src = 'https://www.youtube.com/iframe_api'; document.head.appendChild(s1);
-    const wait = setInterval(() => { if (ytApiReady) { clearInterval(wait); playYoutube(manualVideoId); } }, 150);
+    const wait = setInterval(() => { if (ytApiReady) { clearInterval(wait); playYoutubeManual(manualVideoId); } }, 150);
   } else if (manualScUrl) {
     const s2 = document.createElement('script'); s2.src = 'https://w.soundcloud.com/player/api.js'; document.head.appendChild(s2);
     setTimeout(() => playSoundcloud(manualScUrl), 500);
   } else {
-    const s1 = document.createElement('script'); s1.src = 'https://www.youtube.com/iframe_api'; document.head.appendChild(s1);
     const s2 = document.createElement('script'); s2.src = 'https://w.soundcloud.com/player/api.js'; document.head.appendChild(s2);
   }
   connectWs();
