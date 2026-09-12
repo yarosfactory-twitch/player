@@ -104,8 +104,7 @@
     function tryStart() {
       if (started || !videoReady || !audioReady) return;
       started = true;
-      videoEl.currentTime = 0;
-      audioEl.currentTime = 0;
+      if (!usingPreload) { videoEl.currentTime = 0; audioEl.currentTime = 0; }
       Promise.all([videoEl.play(), audioEl.play()]).catch(() => {});
       startSyncLoop();
     }
