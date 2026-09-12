@@ -43,6 +43,7 @@
   let preloadVideoEl = null;  // next track's video, buffering quietly in the background (not in the DOM)
   let preloadAudioEl = null;
   let preloadUrls = null;     // { videoStreamUrl, audioStreamUrl } of what's currently preloading
+  let progressInterval = null;
   let ws = null;
   let currentTrack = null;    // { source, videoStreamUrl, audioStreamUrl } | { source, trackUrl } | { source, videoId } (manual)
   let paused = false;
@@ -117,6 +118,8 @@
       // fallback in case one stream's canplay never fires — don't hang forever
       setTimeout(() => { videoReady = true; audioReady = true; tryStart(); }, 4000);
     }
+
+    startProgressReporting((cb) => cb(audioEl.currentTime, audioEl.duration));
   }
 
   // Called when the current youtube-direct track finishes. If the next track is
@@ -157,6 +160,19 @@
     }, 250);
   }
 
+  // Reports playback position to Streamer.bot roughly once a second, so the panel
+  // can show a progress bar. getValues is a function returning { position, duration }
+  // for whichever source is currently active (dual-stream reads the audio element
+  // directly; SoundCloud has to ask its widget asynchronously).
+  function startProgressReporting(getValues) {
+    clearInterval(progressInterval);
+    progressInterval = setInterval(() => {
+      getValues((position, duration) => {
+        doAction('Music - Handle', { cmd: 'progress', position: position || 0, duration: duration || 0 });
+      });
+    }, 1000);
+  }
+
   // ---------- SoundCloud (iframe widget, unchanged) ----------
   function playSoundcloud(trackUrl) {
     ytPlayer = null;
@@ -178,6 +194,11 @@
     }
     scWidget = SC.Widget(iframe);
     scWidget.bind(SC.Widget.Events.FINISH, sendEnded);
+    startProgressReporting((cb) => {
+      scWidget.getPosition((posMs) => {
+        scWidget.getDuration((durMs) => cb(posMs / 1000, durMs / 1000));
+      });
+    });
   }
 
   // ---------- manual-test-only YouTube iframe path (has ads, kept only for quick ws-less testing) ----------
@@ -238,6 +259,7 @@
   }
   function stopPlayback() {
     clearInterval(syncInterval);
+    clearInterval(progressInterval);
     document.body.innerHTML = '';
     ytPlayer = null;
     scWidget = null;
