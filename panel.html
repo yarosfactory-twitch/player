@@ -38,10 +38,13 @@
   #time-label { font-size: 11px; color: #9aa0a8; white-space: nowrap; min-width: 78px; text-align: right; }
 
   #skip-btn {
-    background: #2b2f35; color: #e6e6e6; border: 1px solid #383d44; border-radius: 4px;
-    padding: 6px 10px; font-size: 12px; cursor: pointer; margin-top: 10px;
+    width: 34px; height: 34px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: #2b2f35; border: 1px solid #383d44; border-radius: 50%;
+    cursor: pointer; margin-top: 10px;
   }
   #skip-btn:hover { background: #383d44; }
+  #skip-btn svg { width: 15px; height: 15px; fill: #e6e6e6; }
 
   button { background: #2b2f35; color: #e6e6e6; border: 1px solid #383d44; border-radius: 4px; padding: 6px 10px; font-size: 12px; cursor: pointer; }
   button:hover { background: #383d44; }
@@ -85,7 +88,7 @@
     <div id="progress-track"><div id="progress-fill"></div></div>
     <div id="time-label">00:00 / 00:00</div>
   </div>
-  <button id="skip-btn">Далі ⏭</button>
+  <button id="skip-btn"><svg viewBox="0 0 24 24"><path d="M6 6l8 6-8 6zM16 6h2v12h-2z"/></svg></button>
 </div>
 
 <h2>Додати трек вручну</h2>
@@ -143,7 +146,7 @@
     }
   }
 
-  function trackLabel(t) { return t.title || (t.source === 'youtube' ? 'YouTube: ' + t.videoId : t.trackUrl); }
+  function trackLabel(t) { return t.title || (t.source === 'youtube' ? t.videoId : t.trackUrl); }
 
   function formatTime(sec) {
     sec = Math.max(0, Math.floor(sec || 0));
