@@ -23,6 +23,8 @@
   let ytApiReady = false;
   let pendingYt = null;
   let scWidget = null;
+  let scReady = false;
+  let pendingScAction = null;
   let ws = null;
 
   function mountIframe(src, allow) {
@@ -63,6 +65,8 @@
 
   function playSoundcloud(trackUrl) {
     ytPlayer = null;
+    scReady = false;
+    pendingScAction = null;
     const iframe = mountIframe(
       'https://w.soundcloud.com/player/?url=' + encodeURIComponent(trackUrl) +
       '&auto_play=true&hide_related=true&show_comments=false&show_user=false',
@@ -79,12 +83,25 @@
       return;
     }
     scWidget = SC.Widget(iframe);
+    scReady = false;
+    scWidget.bind(SC.Widget.Events.READY, () => {
+      scReady = true;
+      if (pendingScAction === 'pause') scWidget.pause();
+      else if (pendingScAction === 'resume') scWidget.play();
+      pendingScAction = null;
+    });
     scWidget.bind(SC.Widget.Events.FINISH, sendEnded);
   }
 
-  function pausePlayback()  { if (ytPlayer && ytPlayer.pauseVideo) ytPlayer.pauseVideo(); if (scWidget && scWidget.pause) scWidget.pause(); }
-  function resumePlayback() { if (ytPlayer && ytPlayer.playVideo) ytPlayer.playVideo();   if (scWidget && scWidget.play) scWidget.play(); }
-  function stopPlayback()   { document.body.innerHTML = ''; ytPlayer = null; scWidget = null; }
+  function pausePlayback()  {
+    if (ytPlayer && ytPlayer.pauseVideo) ytPlayer.pauseVideo();
+    if (scWidget) { if (scReady) scWidget.pause(); else pendingScAction = 'pause'; }
+  }
+  function resumePlayback() {
+    if (ytPlayer && ytPlayer.playVideo) ytPlayer.playVideo();
+    if (scWidget) { if (scReady) scWidget.play(); else pendingScAction = 'resume'; }
+  }
+  function stopPlayback()   { document.body.innerHTML = ''; ytPlayer = null; scWidget = null; scReady = false; pendingScAction = null; }
 
   // ---------- Streamer.bot WebSocket ----------
   function sendEnded() {
