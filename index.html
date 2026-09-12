@@ -54,8 +54,9 @@
 
   // ---------- direct dual-stream (yt-dlp) playback — no YouTube player, no ads ----------
   // Modern YouTube uploads rarely have one file with both video and audio, so we
-  // play a video-only stream (muted) and an audio-only stream side by side, and
-  // nudge the video back in sync with the audio (the "master clock") every second.
+  // play a video-only stream (muted) and an audio-only stream side by side. To start
+  // as close together as possible, we wait for both to report "canplay" before calling
+  // play() on both in the same tick, rather than letting each autoplay independently.
   function playDualStream(videoUrl, audioUrl) {
     ytPlayer = null;
     scWidget = null;
@@ -66,22 +67,43 @@
 
     videoEl = document.createElement('video');
     videoEl.src = videoUrl;
-    videoEl.autoplay = true;
     videoEl.muted = true; // video-only stream has no audio track anyway; muted just to be safe
     videoEl.controls = false;
+    videoEl.preload = 'auto';
     document.body.appendChild(videoEl);
 
     audioEl = document.createElement('audio');
     audioEl.src = audioUrl;
-    audioEl.autoplay = true;
+    audioEl.preload = 'auto';
     audioEl.addEventListener('ended', sendEnded);
     document.body.appendChild(audioEl);
 
+    let videoReady = false;
+    let audioReady = false;
+    let started = false;
+
+    function tryStart() {
+      if (started || !videoReady || !audioReady) return;
+      started = true;
+      videoEl.currentTime = 0;
+      audioEl.currentTime = 0;
+      Promise.all([videoEl.play(), audioEl.play()]).catch(() => {});
+      startSyncLoop();
+    }
+
+    videoEl.addEventListener('canplay', () => { videoReady = true; tryStart(); }, { once: true });
+    audioEl.addEventListener('canplay', () => { audioReady = true; tryStart(); }, { once: true });
+    // fallback in case one stream's canplay never fires — don't hang forever
+    setTimeout(() => { videoReady = true; audioReady = true; tryStart(); }, 4000);
+  }
+
+  function startSyncLoop() {
+    clearInterval(syncInterval);
     syncInterval = setInterval(() => {
       if (!videoEl || !audioEl || videoEl.paused || audioEl.paused) return;
       const drift = videoEl.currentTime - audioEl.currentTime;
-      if (Math.abs(drift) > 0.3) videoEl.currentTime = audioEl.currentTime;
-    }, 1000);
+      if (Math.abs(drift) > 0.15) videoEl.currentTime = audioEl.currentTime;
+    }, 250);
   }
 
   // ---------- SoundCloud (iframe widget, unchanged) ----------
@@ -150,7 +172,7 @@
     if (!currentTrack || !paused) return;
     paused = false;
     if (currentTrack.source === 'youtube-direct') {
-      if (videoEl && audioEl) { videoEl.play(); audioEl.play(); }
+      if (videoEl && audioEl) { Promise.all([videoEl.play(), audioEl.play()]).catch(() => {}); }
       else playDualStream(currentTrack.videoStreamUrl, currentTrack.audioStreamUrl);
     } else if (currentTrack.source === 'soundcloud') {
       const iframe = mountIframe(
