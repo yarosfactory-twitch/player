@@ -11,15 +11,40 @@
   #status.connected { color: #5fbf6f; }
   #status.disconnected { color: #d9534f; }
 
-  #current { background: #1f2226; border: 1px solid #2b2f35; border-radius: 6px; padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
-  #current .title { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #current .sub { font-size: 12px; color: #9aa0a8; margin-top: 2px; }
-  #current .controls { display: flex; gap: 6px; flex-shrink: 0; }
+  #current {
+    background: #1f2226;
+    border: 1px solid #2b2f35;
+    border-radius: 6px;
+    padding: 10px 12px;
+  }
+  #current-top { display: flex; align-items: center; gap: 10px; }
+  #platform-icon { width: 22px; height: 22px; flex-shrink: 0; }
+  #current-info { min-width: 0; flex: 1; }
+  #cur-title { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #cur-sub { font-size: 12px; color: #9aa0a8; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  #playpause {
+    width: 34px; height: 34px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: #2b2f35; border: 1px solid #383d44; border-radius: 50%;
+    cursor: pointer;
+  }
+  #playpause:hover { background: #383d44; }
+  #playpause svg { width: 15px; height: 15px; fill: #e6e6e6; }
+
+  #progress-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+  #progress-track { flex: 1; height: 4px; background: #2b2f35; border-radius: 2px; position: relative; overflow: hidden; }
+  #progress-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0%; background: #5b8cff; border-radius: 2px; }
+  #time-label { font-size: 11px; color: #9aa0a8; white-space: nowrap; min-width: 78px; text-align: right; }
+
+  #skip-btn {
+    background: #2b2f35; color: #e6e6e6; border: 1px solid #383d44; border-radius: 4px;
+    padding: 6px 10px; font-size: 12px; cursor: pointer; margin-top: 10px;
+  }
+  #skip-btn:hover { background: #383d44; }
 
   button { background: #2b2f35; color: #e6e6e6; border: 1px solid #383d44; border-radius: 4px; padding: 6px 10px; font-size: 12px; cursor: pointer; }
   button:hover { background: #383d44; }
-  button.danger { border-color: #7a2c2c; color: #e08b8b; }
-  button.danger:hover { background: #3a2323; }
 
   #add-form { display: flex; gap: 6px; margin-bottom: 4px; flex-wrap: wrap; }
   #add-form input { background: #1f2226; border: 1px solid #2b2f35; color: #e6e6e6; border-radius: 4px; padding: 6px 8px; font-size: 12px; }
@@ -46,15 +71,21 @@
 
 <h2>Поточний трек</h2>
 <div id="current">
-  <div>
-    <div class="title" id="cur-title">—</div>
-    <div class="sub" id="cur-sub"></div>
+  <div id="current-top">
+    <svg id="platform-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#555"/></svg>
+    <div id="current-info">
+      <div id="cur-title">Нічого не грає</div>
+      <div id="cur-sub"></div>
+    </div>
+    <div id="playpause">
+      <svg id="playpause-icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+    </div>
   </div>
-  <div class="controls">
-    <button id="btn-pause">Пауза</button>
-    <button id="btn-resume">Відтворити</button>
-    <button id="btn-skip">Далі ⏭</button>
+  <div id="progress-row">
+    <div id="progress-track"><div id="progress-fill"></div></div>
+    <div id="time-label">00:00 / 00:00</div>
   </div>
+  <button id="skip-btn">Далі ⏭</button>
 </div>
 
 <h2>Додати трек вручну</h2>
@@ -79,6 +110,15 @@
   const sbPort = params.get('sb') || 8080;
   const statusEl = document.getElementById('status');
   let ws;
+  let lastPaused = false;
+
+  const ICONS = {
+    youtube: '<rect x="1" y="4" width="22" height="16" rx="4" fill="#ff0000"/><path d="M10 8.5l7 3.5-7 3.5z" fill="#fff"/>',
+    soundcloud: '<circle cx="12" cy="12" r="11" fill="#ff5500"/><path d="M6 13h1v3H6zM8 11h1v5H8zM10 9h1v7h-1zM12 10h1v6h-1zM14 8h1v8h-1zM16 9c2 0 3 1.5 3 3.5S18 16 16 16h-.5v-7H16z" fill="#fff"/>',
+    default: '<circle cx="12" cy="12" r="11" fill="#555"/>'
+  };
+  const PLAY_ICON = '<path d="M8 5v14l11-7z"/>';
+  const PAUSE_ICON = '<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>';
 
   function connect() {
     ws = new WebSocket('ws://127.0.0.1:' + sbPort + '/');
@@ -91,9 +131,9 @@
     ws.onerror = () => ws.close();
     ws.onmessage = (ev) => {
       const msg = JSON.parse(ev.data);
-      if (msg.event && msg.event.source === 'General' && msg.event.type === 'Custom' && msg.data && msg.data.event === 'state') {
-        render(msg.data);
-      }
+      if (!msg.event || msg.event.source !== 'General' || msg.event.type !== 'Custom') return;
+      if (msg.data.event === 'state') render(msg.data);
+      else if (msg.data.event === 'progress') renderProgress(msg.data.position, msg.data.duration);
     };
   }
 
@@ -105,10 +145,26 @@
 
   function trackLabel(t) { return t.title || (t.source === 'youtube' ? 'YouTube: ' + t.videoId : t.trackUrl); }
 
+  function formatTime(sec) {
+    sec = Math.max(0, Math.floor(sec || 0));
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  }
+
   function render(state) {
     const cur = state.current;
+    lastPaused = !!state.paused;
+
     document.getElementById('cur-title').textContent = cur ? trackLabel(cur) : 'Нічого не грає';
     document.getElementById('cur-sub').textContent = cur ? [cur.artist, cur.requestedBy ? ('замовив: ' + cur.requestedBy) : ''].filter(Boolean).join(' · ') : '';
+
+    const iconSvg = document.getElementById('platform-icon');
+    iconSvg.innerHTML = cur ? (ICONS[cur.source] || ICONS.default) : ICONS.default;
+
+    document.getElementById('playpause-icon').innerHTML = lastPaused ? PLAY_ICON : PAUSE_ICON;
+
+    if (!cur) { renderProgress(0, 0); }
 
     const queueEl = document.getElementById('queue');
     document.getElementById('queue-count').textContent = state.queue.length;
@@ -135,6 +191,14 @@
     renderBanGroup('ban-songs', state.bans.songs, 'song');
   }
 
+  function renderProgress(position, duration) {
+    const fill = document.getElementById('progress-fill');
+    const label = document.getElementById('time-label');
+    const pct = duration > 0 ? Math.min(100, (position / duration) * 100) : 0;
+    fill.style.width = pct + '%';
+    label.textContent = formatTime(position) + ' / ' + formatTime(duration);
+  }
+
   function renderBanGroup(elId, values, type) {
     const el = document.getElementById(elId);
     el.innerHTML = values.length
@@ -143,6 +207,11 @@
   }
 
   function escapeHtml(s) { return String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+  document.getElementById('playpause').addEventListener('click', () => {
+    doAction({ cmd: lastPaused ? 'resume' : 'pause' });
+  });
+  document.getElementById('skip-btn').addEventListener('click', () => doAction({ cmd: 'skip' }));
 
   document.body.addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-action]');
@@ -155,10 +224,6 @@
       if (value) doAction({ cmd: 'ban', banType: type, value });
     }
   });
-
-  document.getElementById('btn-pause').onclick  = () => doAction({ cmd: 'pause' });
-  document.getElementById('btn-resume').onclick = () => doAction({ cmd: 'resume' });
-  document.getElementById('btn-skip').onclick   = () => doAction({ cmd: 'skip' });
 
   document.getElementById('add-form').addEventListener('submit', (e) => {
     e.preventDefault();
