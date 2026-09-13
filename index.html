@@ -204,6 +204,31 @@
     return iframe;
   }
 
+  // Plain YouTube tracks now arrive as ONE already-muxed local stream (ffmpeg
+  // combined the separate video/audio on the backend) — just a normal single
+  // <video> element, no more juggling two elements' sync at all.
+  function playMuxedStream(streamUrl, meta, youtubeVideoId) {
+    ytPlayer = null;
+    audioEl = null;
+    currentTrack = { source: 'youtube-muxed', streamUrl: streamUrl, meta: meta, youtubeVideoId: youtubeVideoId };
+    paused = false;
+    clearInterval(syncInterval);
+    ++playGeneration;
+    renderScCard(null); // no card for this path — it's a real video
+    mediaRoot.innerHTML = '';
+
+    videoEl = document.createElement('video');
+    videoEl.src = streamUrl;
+    videoEl.autoplay = true;
+    videoEl.controls = false;
+    videoEl.referrerPolicy = 'no-referrer';
+    videoEl.addEventListener('ended', sendEnded);
+    videoEl.addEventListener('error', handleStreamLoadError);
+    mediaRoot.appendChild(videoEl);
+
+    startProgressReporting((cb) => cb(videoEl.currentTime, videoEl.duration));
+  }
+
   // Spotify- and YouTube Music-derived tracks are audio-first: skip the video entirely
   // (even though yt-dlp resolved one) and just play the audio stream, showing the
   // now-playing card instead. Reuses a preloaded audio element when the URLs match.
@@ -327,19 +352,12 @@
     });
   }
 
-  // If a stream fails to load for any reason (bad URL, unsupported format, etc.),
-  // first try the plain official YouTube embed for the same video (has ads, but is
-  // far more reliable for heavily-protected uploads) before giving up and skipping.
+  // If a resolved stream fails to actually load (some heavily-protected uploads do
+  // this even after yt-dlp successfully resolved a URL), tell Streamer.bot so it can
+  // fall back to Tune2Live — same as an outright resolution failure.
   function handleStreamLoadError() {
-    console.error('Playback failed to load.', currentTrack);
-    if (currentTrack && currentTrack.youtubeVideoId && !currentTrack.triedEmbedFallback) {
-      currentTrack.triedEmbedFallback = true;
-      console.warn('Falling back to the official YouTube embed for this video.');
-      createYtPlayer(currentTrack.youtubeVideoId);
-      return;
-    }
-    console.error('No fallback available, skipping to next track.');
-    sendEnded();
+    console.error('Playback failed to load, falling back to Tune2Live.', currentTrack);
+    doAction('Music - Handle', { cmd: 'directPlaybackFailed' });
   }
 
   // Called when the current youtube-direct track finishes. If the next track is
@@ -474,14 +492,17 @@
     ytApiReady = true;
     if (pendingYt) { createYtPlayer(pendingYt); pendingYt = null; }
   };
-  function createYtPlayer(videoId) {
+  function createYtPlayer(videoId, onError) {
     mediaRoot.innerHTML = '<div id="yt-target" style="width:100vw;height:100vh;"></div>';
     videoEl = null;
     ++playGeneration;
     ytPlayer = new YT.Player('yt-target', {
       width: '100%', height: '100%', videoId: videoId,
       playerVars: { autoplay: 1, controls: 0, modestbranding: 1, rel: 0, origin: location.origin },
-      events: { onStateChange: (e) => { if (e.data === YT.PlayerState.ENDED) sendEnded(); } }
+      events: {
+        onStateChange: (e) => { if (e.data === YT.PlayerState.ENDED) sendEnded(); },
+        onError: (e) => { if (onError) onError(e.data); }
+      }
     });
   }
   function playYoutubeManual(videoId) {
@@ -489,6 +510,28 @@
     paused = false;
     if (!ytApiReady) { pendingYt = videoId; return; }
     createYtPlayer(videoId);
+  }
+
+  // Called when Streamer.bot has fallen back to Tune2Live for a track (either it
+  // couldn't resolve a direct stream at all, or a resolved one failed to actually
+  // load). Shows Tune2Live's own widget right here, so there's still just one
+  // OBS source in total rather than needing a separate always-present one.
+  function playTune2LiveWidget(widgetUrl) {
+    ytPlayer = null;
+    videoEl = null;
+    audioEl = null;
+    scWidget = null;
+    currentTrack = { source: 'tune2live-fallback', widgetUrl: widgetUrl };
+    paused = false;
+    clearInterval(syncInterval);
+    clearInterval(progressInterval);
+    ++playGeneration;
+    renderScCard(null); // no now-playing card for this path — Tune2Live shows its own UI
+    mediaRoot.innerHTML = '';
+    const iframe = document.createElement('iframe');
+    iframe.allow = 'autoplay';
+    iframe.src = widgetUrl;
+    mediaRoot.appendChild(iframe);
   }
 
   // ---------- pause / resume / stop ----------
@@ -517,6 +560,9 @@
     if (currentTrack.source === 'youtube-direct') {
       if (videoEl && audioEl) { Promise.all([videoEl.play(), audioEl.play()]).catch(() => {}); }
       else playDualStream(currentTrack.videoStreamUrl, currentTrack.audioStreamUrl);
+    } else if (currentTrack.source === 'youtube-muxed') {
+      if (videoEl) { videoEl.play().catch(() => {}); }
+      else playMuxedStream(currentTrack.streamUrl, currentTrack.meta, currentTrack.youtubeVideoId);
     } else if (currentTrack.source === 'youtube-audio-card') {
       if (audioEl) { audioEl.play().catch(() => {}); }
       else playYoutubeAudioCard(currentTrack.audioStreamUrl, currentTrack.meta);
@@ -524,6 +570,8 @@
       playSoundcloud(currentTrack.trackUrl, lastScPosition, currentTrack.meta);
     } else if (currentTrack.source === 'youtube-manual') {
       createYtPlayer(currentTrack.videoId);
+    } else if (currentTrack.source === 'tune2live-fallback') {
+      playTune2LiveWidget(currentTrack.widgetUrl);
     }
   }
   function stopPlayback() {
@@ -588,6 +636,16 @@
             }, data.youtubeVideoId);
           }
         }
+        else if (data.event === 'play' && data.source === 'youtube-muxed') {
+          const alreadyPlayingThis = currentTrack && currentTrack.source === 'youtube-muxed' &&
+            currentTrack.streamUrl === data.streamUrl && !paused;
+          if (!alreadyPlayingThis) {
+            playMuxedStream(data.streamUrl, {
+              title: data.title, artist: data.artist, requestedBy: data.requestedBy,
+              requesterAvatar: data.requesterAvatar, artwork: data.artwork
+            }, data.youtubeVideoId);
+          }
+        }
         else if (data.event === 'play' && data.source === 'youtube-direct') {
           const alreadyPlayingThis = currentTrack && currentTrack.source === 'youtube-direct' &&
             currentTrack.videoStreamUrl === data.videoStreamUrl && currentTrack.audioStreamUrl === data.audioStreamUrl && !paused;
@@ -597,6 +655,9 @@
           playSoundcloud(data.trackUrl, 0, {
             title: data.title, artist: data.artist, requestedBy: data.requestedBy, requesterAvatar: data.requesterAvatar
           });
+        }
+        else if (data.event === 'play' && data.source === 'tune2live-fallback') {
+          playTune2LiveWidget(data.widgetUrl);
         }
         else if (data.event === 'preload') preloadDualStream(data.videoStreamUrl, data.audioStreamUrl);
         else if (data.event === 'pause') pausePlayback();
