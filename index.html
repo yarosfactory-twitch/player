@@ -44,6 +44,7 @@
   let preloadAudioEl = null;
   let preloadUrls = null;     // { videoStreamUrl, audioStreamUrl } of what's currently preloading
   let progressInterval = null;
+  let lastProgressTick = null;
   let ws = null;
   let currentTrack = null;    // { source, videoStreamUrl, audioStreamUrl } | { source, trackUrl } | { source, videoId } (manual)
   let paused = false;
@@ -173,6 +174,7 @@
         doAction('Music - Handle', { cmd: 'progress', position: pos, duration: dur });
       });
     }
+    lastProgressTick = tick;
     tick(); // don't wait a full second for the first update
     progressInterval = setInterval(tick, 1000);
   }
@@ -238,6 +240,7 @@
     if (videoEl || audioEl) {
       if (videoEl) videoEl.pause();
       if (audioEl) audioEl.pause();
+      if (lastProgressTick) lastProgressTick();
       return;
     }
     document.body.innerHTML = '';
@@ -276,6 +279,13 @@
   // ---------- Streamer.bot WebSocket ----------
   function sendEnded() { doAction('Music - Handle', { cmd: 'ended' }); }
 
+  function handleSeek(position) {
+    if (videoEl) videoEl.currentTime = position;
+    if (audioEl) audioEl.currentTime = position;
+    if (scWidget) scWidget.seekTo(position * 1000); // SC Widget API takes milliseconds
+    if (lastProgressTick) lastProgressTick();
+  }
+
   function doAction(name, actionArgs) {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify({ request: 'DoAction', id: 'player-' + Date.now(), action: { name: name }, args: actionArgs }));
@@ -302,6 +312,7 @@
         else if (data.event === 'pause') pausePlayback();
         else if (data.event === 'resume') resumePlayback();
         else if (data.event === 'stop') stopPlayback();
+        else if (data.event === 'seek') handleSeek(data.position);
       };
       ws.onclose = () => setTimeout(connectWs, 2000);
       ws.onerror = () => ws.close();
