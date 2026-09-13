@@ -18,11 +18,26 @@
     border-radius: 22px;
     overflow: hidden;
     font-family: system-ui, sans-serif;
-    background: rgba(22, 18, 28, 0.38);
-    backdrop-filter: blur(18px) saturate(150%);
-    -webkit-backdrop-filter: blur(18px) saturate(150%);
     border: 1px solid rgba(255,255,255,0.14);
     box-shadow: 0 10px 30px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.08);
+  }
+
+  /* blurred album/video artwork, when we have one — sits behind everything else */
+  #sc-card-bg {
+    position: absolute;
+    inset: -20px;
+    background: #1c1620 center/cover no-repeat;
+    filter: blur(24px) brightness(0.6) saturate(115%);
+    transform: scale(1.15);
+  }
+  /* the "напівпрозоре скло" layer on top of the artwork — this is what makes it a
+     translucent tinted cover rather than a plain sharp image */
+  #sc-card-tint {
+    position: absolute;
+    inset: 0;
+    background: rgba(22, 18, 28, 0.42);
+    backdrop-filter: blur(6px) saturate(140%);
+    -webkit-backdrop-filter: blur(6px) saturate(140%);
   }
 
   #sc-avatar {
@@ -113,16 +128,13 @@
   @media (prefers-reduced-motion: reduce) {
     #sc-eq span { animation: none; height: 70% !important; }
   }
-  #sc-progress-fill { height: 100%; width: 0%; background: #5b8cff; }
-
-  @media (prefers-reduced-motion: reduce) {
-    #sc-eq span { animation: none; height: 70% !important; }
-  }
 </style>
 </head>
 <body>
 <div id="media-root"></div>
 <div id="sc-card" style="display:none;">
+  <div id="sc-card-bg"></div>
+  <div id="sc-card-tint"></div>
   <div id="sc-avatar"></div>
   <div id="sc-eq"><span></span><span></span><span></span></div>
   <div id="sc-playpause"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>
@@ -189,6 +201,45 @@
     iframe.src = src;
     mediaRoot.appendChild(iframe);
     return iframe;
+  }
+
+  // Spotify- and YouTube Music-derived tracks are audio-first: skip the video entirely
+  // (even though yt-dlp resolved one) and just play the audio stream, showing the
+  // now-playing card instead. Reuses a preloaded audio element when the URLs match.
+  function playYoutubeAudioCard(audioUrl, meta) {
+    ytPlayer = null;
+    videoEl = null;
+    currentTrack = { source: 'youtube-audio-card', audioStreamUrl: audioUrl, meta: meta };
+    paused = false;
+    clearInterval(syncInterval);
+
+    const usingPreload = !!(preloadUrls && preloadUrls.audioStreamUrl === audioUrl && preloadAudioEl);
+    mediaRoot.innerHTML = '';
+
+    if (usingPreload) {
+      audioEl = preloadAudioEl;
+    } else {
+      audioEl = document.createElement('audio');
+      audioEl.src = audioUrl;
+      audioEl.preload = 'auto';
+    }
+    audioEl.addEventListener('ended', sendEnded);
+    audioEl.addEventListener('error', handleStreamLoadError);
+    mediaRoot.appendChild(audioEl);
+
+    preloadVideoEl = null;
+    preloadAudioEl = null;
+    preloadUrls = null;
+
+    if (usingPreload && audioEl.readyState >= 3) {
+      audioEl.play().catch(() => {});
+    } else {
+      audioEl.addEventListener('canplay', () => audioEl.play().catch(() => {}), { once: true });
+    }
+
+    startProgressReporting((cb) => cb(audioEl.currentTime, audioEl.duration));
+    renderScCard(meta);
+    setScCardPaused(false);
   }
 
   // ---------- direct dual-stream (yt-dlp) playback — no YouTube player, no ads ----------
@@ -355,6 +406,8 @@
     document.getElementById('sc-requester').textContent = meta.requestedBy ? ('замовив: ' + meta.requestedBy) : '';
     const avatar = document.getElementById('sc-avatar');
     avatar.style.backgroundImage = meta.requesterAvatar ? `url('${meta.requesterAvatar}')` : 'none';
+    const bg = document.getElementById('sc-card-bg');
+    bg.style.backgroundImage = meta.artwork ? `url('${meta.artwork}')` : 'none';
     card.style.display = 'block';
   }
 
@@ -433,6 +486,9 @@
     if (currentTrack.source === 'youtube-direct') {
       if (videoEl && audioEl) { Promise.all([videoEl.play(), audioEl.play()]).catch(() => {}); }
       else playDualStream(currentTrack.videoStreamUrl, currentTrack.audioStreamUrl);
+    } else if (currentTrack.source === 'youtube-audio-card') {
+      if (audioEl) { audioEl.play().catch(() => {}); }
+      else playYoutubeAudioCard(currentTrack.audioStreamUrl, currentTrack.meta);
     } else if (currentTrack.source === 'soundcloud') {
       playSoundcloud(currentTrack.trackUrl, lastScPosition, currentTrack.meta);
     } else if (currentTrack.source === 'youtube-manual') {
@@ -490,7 +546,17 @@
         try { msg = JSON.parse(ev.data); } catch (e) { return; }
         if (!msg.event || msg.event.source !== 'General' || msg.event.type !== 'Custom') return;
         const data = msg.data || {};
-        if (data.event === 'play' && data.source === 'youtube-direct') {
+        if (data.event === 'play' && data.source === 'youtube-direct' && data.cardMode) {
+          const alreadyPlayingThis = currentTrack && currentTrack.source === 'youtube-audio-card' &&
+            currentTrack.audioStreamUrl === data.audioStreamUrl && !paused;
+          if (!alreadyPlayingThis) {
+            playYoutubeAudioCard(data.audioStreamUrl, {
+              title: data.title, artist: data.artist, requestedBy: data.requestedBy,
+              requesterAvatar: data.requesterAvatar, artwork: data.artwork
+            });
+          }
+        }
+        else if (data.event === 'play' && data.source === 'youtube-direct') {
           const alreadyPlayingThis = currentTrack && currentTrack.source === 'youtube-direct' &&
             currentTrack.videoStreamUrl === data.videoStreamUrl && currentTrack.audioStreamUrl === data.audioStreamUrl && !paused;
           if (!alreadyPlayingThis) playDualStream(data.videoStreamUrl, data.audioStreamUrl);
