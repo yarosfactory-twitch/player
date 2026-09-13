@@ -224,6 +224,7 @@
       audioEl = document.createElement('audio');
       audioEl.src = audioUrl;
       audioEl.preload = 'auto';
+      audioEl.referrerPolicy = 'no-referrer';
     }
     const myAudioEl = audioEl;
     myAudioEl.addEventListener('ended', sendEnded);
@@ -275,10 +276,12 @@
       videoEl.src = videoUrl;
       videoEl.muted = true; // video-only stream has no audio track anyway; muted just to be safe
       videoEl.preload = 'auto';
+      videoEl.referrerPolicy = 'no-referrer';
 
       audioEl = document.createElement('audio');
       audioEl.src = audioUrl;
       audioEl.preload = 'auto';
+      audioEl.referrerPolicy = 'no-referrer';
     }
     // capture these specific elements so a stale callback never touches whatever
     // videoEl/audioEl have become by the time it fires
