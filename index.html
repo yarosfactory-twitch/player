@@ -48,6 +48,7 @@
   let ws = null;
   let currentTrack = null;    // { source, videoStreamUrl, audioStreamUrl } | { source, trackUrl } | { source, videoId } (manual)
   let paused = false;
+  let lastScPosition = 0; // last known SoundCloud position (seconds), used to resume at the right spot
 
   function mountIframe(src, allow) {
     document.body.innerHTML = '';
@@ -187,33 +188,42 @@
   }
 
   // ---------- SoundCloud (iframe widget) ----------
-  // The widget's own pause()/play() postMessage commands proved unreliable, so we
-  // don't rely on them at all: pause fully removes the iframe (guaranteed silence),
-  // resume recreates a fresh one with the same track (starts over from the top —
-  // less ideal than a true resume, but this is the one approach that actually works).
-  function playSoundcloud(trackUrl) {
+  // The widget's own pause()/play() postMessage commands proved unreliable, so pause
+  // fully removes the iframe (guaranteed silence) and resume recreates a fresh one —
+  // but seekTo IS reliable here, so we use it once, right as the new iframe becomes
+  // ready, to jump back to the position we were at before pausing.
+  function playSoundcloud(trackUrl, resumeAt) {
     ytPlayer = null;
     videoEl = null;
     currentTrack = { source: 'soundcloud', trackUrl: trackUrl };
     paused = false;
+    lastScPosition = resumeAt || 0;
     const iframe = mountIframe(
       'https://w.soundcloud.com/player/?url=' + encodeURIComponent(trackUrl) +
       '&auto_play=true&hide_related=true&show_comments=false&show_user=false',
       'autoplay'
     );
-    bindScWidget(iframe);
+    bindScWidget(iframe, resumeAt);
   }
 
-  function bindScWidget(iframe) {
+  function bindScWidget(iframe, resumeAt) {
     if (typeof SC === 'undefined' || !SC.Widget) {
-      setTimeout(() => bindScWidget(iframe), 150);
+      setTimeout(() => bindScWidget(iframe, resumeAt), 150);
       return;
     }
     scWidget = SC.Widget(iframe);
     scWidget.bind(SC.Widget.Events.FINISH, sendEnded);
+    if (resumeAt) {
+      // seekTo is the one widget command that's proven reliable here (unlike pause/play),
+      // so use it once to jump to where we left off, right as the fresh track starts.
+      scWidget.bind(SC.Widget.Events.READY, () => { scWidget.seekTo(resumeAt * 1000); });
+    }
     startProgressReporting((cb) => {
       scWidget.getPosition((posMs) => {
-        scWidget.getDuration((durMs) => cb(posMs / 1000, durMs / 1000));
+        scWidget.getDuration((durMs) => {
+          lastScPosition = posMs / 1000;
+          cb(posMs / 1000, durMs / 1000);
+        });
       });
     });
   }
@@ -264,7 +274,7 @@
       if (videoEl && audioEl) { Promise.all([videoEl.play(), audioEl.play()]).catch(() => {}); }
       else playDualStream(currentTrack.videoStreamUrl, currentTrack.audioStreamUrl);
     } else if (currentTrack.source === 'soundcloud') {
-      playSoundcloud(currentTrack.trackUrl);
+      playSoundcloud(currentTrack.trackUrl, lastScPosition);
     } else if (currentTrack.source === 'youtube-manual') {
       createYtPlayer(currentTrack.videoId);
     }
@@ -279,6 +289,7 @@
     audioEl = null;
     currentTrack = null;
     paused = false;
+    lastScPosition = 0;
   }
 
   // ---------- Streamer.bot WebSocket ----------
@@ -322,7 +333,7 @@
       ws.onclose = () => setTimeout(connectWs, 2000);
       ws.onerror = () => ws.close();
     } catch (e) {
-      setTimeout(connectWs, 2001);
+      setTimeout(connectWs, 2000);
     }
   }
 
