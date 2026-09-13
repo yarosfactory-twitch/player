@@ -1,625 +1,377 @@
 <!DOCTYPE html>
 <html lang="uk">
 <head>
-<meta charset="UTF-8">
-<title>плеєр</title>
-<style>
-  html, body { margin: 0; padding: 0; overflow: hidden; background: transparent; }
-  iframe, video { width: 100vw; height: 100vh; border: 0; display: block; object-fit: contain; background: transparent; }
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Синхронний Video + Audio плеєр (Video.js)</title>
+  
+  <!-- Video.js CSS -->
+  <link href="https://vjs.zencdn.net/8.16.1/video-js.css" rel="stylesheet" />
+  
+  <style>
+    :root {
+      --bg: #0f0f13;
+      --card: #1a1a22;
+      --border: #2e2e3a;
+      --accent: #3b82f6;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+    }
 
-  /* SoundCloud audio iframe is muted-of-view — it plays the sound, the card below shows it */
-  #sc-audio-frame { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
 
-  #sc-card {
-    position: absolute;
-    left: 20px; bottom: 20px;
-    width: 380px;
-    height: 200px;
-    border-radius: 22px;
-    overflow: hidden;
-    font-family: system-ui, sans-serif;
-    border: 1px solid rgba(255,255,255,0.14);
-    box-shadow: 0 10px 30px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.08);
-  }
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem 1rem;
+    }
 
-  /* blurred album/video artwork, when we have one — sits behind everything else */
-  #sc-card-bg {
-    position: absolute;
-    inset: -20px;
-    background: #1c1620 center/cover no-repeat;
-    filter: blur(10px) brightness(0.6) saturate(115%);
-    transform: scale(1.08);
-  }
-  /* the "напівпрозоре скло" layer on top of the artwork — this is what makes it a
-     translucent tinted cover rather than a plain sharp image */
-  #sc-card-tint {
-    position: absolute;
-    inset: 0;
-    background: rgba(22, 18, 28, 0.42);
-    backdrop-filter: blur(6px) saturate(140%);
-    -webkit-backdrop-filter: blur(6px) saturate(140%);
-  }
+    .container {
+      width: 100%;
+      max-width: 900px;
+    }
 
-  #sc-avatar {
-    position: absolute;
-    top: 16px; left: 16px;
-    width: 56px; height: 56px;
-    border-radius: 50%;
-    background: #3a2d55 center/cover no-repeat;
-    border: 2px solid rgba(255,255,255,0.35);
-  }
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+      text-align: center;
+    }
 
-  #sc-playpause {
-    position: absolute;
-    top: 16px; right: 16px;
-    width: 34px; height: 34px;
-    border-radius: 50%;
-    background: rgba(0,0,0,0.35);
-    backdrop-filter: blur(2px);
-    display: flex; align-items: center; justify-content: center;
-  }
-  #sc-playpause svg { width: 14px; height: 14px; fill: #fff; }
+    .subtitle {
+      color: var(--muted);
+      text-align: center;
+      margin-bottom: 2rem;
+      font-size: 0.95rem;
+    }
 
-  #sc-eq {
-    position: absolute;
-    top: 30px; left: 84px;
-    display: flex;
-    align-items: flex-end;
-    gap: 3px;
-    height: 18px;
-  }
-  #sc-eq span {
-    width: 4px;
-    background: rgba(255,255,255,0.85);
-    border-radius: 1px;
-    animation: sc-eq-bounce 0.9s ease-in-out infinite;
-  }
-  #sc-eq span:nth-child(1) { height: 40%; animation-delay: 0s; }
-  #sc-eq span:nth-child(2) { height: 100%; animation-delay: 0.15s; }
-  #sc-eq span:nth-child(3) { height: 65%; animation-delay: 0.3s; }
-  @keyframes sc-eq-bounce {
-    0%, 100% { transform: scaleY(0.4); }
-    50% { transform: scaleY(1); }
-  }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
 
-  #sc-text-scrim {
-    position: absolute;
-    left: 0; right: 0; bottom: 0;
-    height: 110px;
-    background: linear-gradient(180deg, rgba(20,12,30,0) 0%, rgba(20,12,30,0.55) 55%, rgba(20,12,30,0.75) 100%);
-  }
-  #sc-info {
-    position: absolute;
-    left: 18px; right: 18px; bottom: 34px;
-  }
-  #sc-title {
-    color: #fff;
-    font-size: 19px;
-    font-weight: 700;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  #sc-artist {
-    color: rgba(255,255,255,0.75);
-    font-size: 13.5px;
-    margin-top: 2px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  #sc-requester {
-    color: rgba(255,255,255,0.5);
-    font-size: 11px;
-    margin-top: 3px;
-  }
+    .field {
+      margin-bottom: 1.25rem;
+    }
 
-  #sc-progress-row {
-    position: absolute;
-    left: 18px; right: 18px; bottom: 12px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  #sc-time-elapsed, #sc-time-total { color: rgba(255,255,255,0.65); font-size: 10.5px; }
-  #sc-progress-track { flex: 1; height: 3px; background: rgba(255,255,255,0.25); border-radius: 2px; overflow: hidden; }
-  #sc-progress-fill { height: 100%; width: 0%; background: #fff; }
+    .field:last-child {
+      margin-bottom: 0;
+    }
 
-  @media (prefers-reduced-motion: reduce) {
-    #sc-eq span { animation: none; height: 70% !important; }
-  }
-</style>
+    label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 500;
+      margin-bottom: 0.4rem;
+      color: var(--muted);
+    }
+
+    input[type="url"] {
+      width: 100%;
+      padding: 0.7rem 0.9rem;
+      background: #121218;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 0.95rem;
+      transition: border-color 0.2s;
+    }
+
+    input[type="url"]:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    .buttons {
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      margin-top: 1.25rem;
+    }
+
+    button {
+      padding: 0.7rem 1.4rem;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+    }
+
+    button:active {
+      transform: scale(0.98);
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: #2563eb;
+    }
+
+    .btn-secondary {
+      background: #2a2a36;
+      color: var(--text);
+    }
+
+    .btn-secondary:hover {
+      background: #353545;
+    }
+
+    .player-wrapper {
+      position: relative;
+      background: #000;
+      border-radius: 12px;
+      overflow: hidden;
+      aspect-ratio: 16 / 9;
+    }
+
+    .video-js {
+      width: 100% !important;
+      height: 100% !important;
+    }
+
+    .status {
+      margin-top: 1rem;
+      font-size: 0.875rem;
+      color: var(--muted);
+      text-align: center;
+      min-height: 1.4em;
+    }
+
+    .status.error {
+      color: #f87171;
+    }
+
+    .status.success {
+      color: #4ade80;
+    }
+
+    footer {
+      margin-top: 2.5rem;
+      font-size: 0.8rem;
+      color: var(--muted);
+      text-align: center;
+    }
+  </style>
 </head>
 <body>
-<div id="media-root"></div>
-<div id="sc-card" style="display:none;">
-  <div id="sc-card-bg"></div>
-  <div id="sc-card-tint"></div>
-  <div id="sc-avatar"></div>
-  <div id="sc-eq"><span></span><span></span><span></span></div>
-  <div id="sc-playpause"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>
-  <div id="sc-text-scrim"></div>
-  <div id="sc-info">
-    <div id="sc-title">—</div>
-    <div id="sc-artist"></div>
-    <div id="sc-requester"></div>
+  <div class="container">
+    <h1>Синхронний Video + Audio</h1>
+    <p class="subtitle">Встав посилання на відео- та аудіо-потоки — вони будуть відтворюватися синхронно</p>
+
+    <div class="card">
+      <div class="field">
+        <label for="videoUrl">Посилання на відео-потік</label>
+        <input type="url" id="videoUrl" placeholder="https://example.com/video.m3u8 або .mp4" />
+      </div>
+
+      <div class="field">
+        <label for="audioUrl">Посилання на аудіо-потік</label>
+        <input type="url" id="audioUrl" placeholder="https://example.com/audio.m3u8 або .mp3 / .aac" />
+      </div>
+
+      <div class="buttons">
+        <button class="btn-primary" id="loadBtn">Завантажити і грати</button>
+        <button class="btn-secondary" id="stopBtn">Зупинити</button>
+      </div>
+    </div>
+
+    <div class="player-wrapper">
+      <video
+        id="videoPlayer"
+        class="video-js vjs-big-play-centered"
+        controls
+        preload="auto"
+        playsinline
+      ></video>
+    </div>
+
+    <!-- Окремий аудіо-елемент (прихований) -->
+    <audio id="audioPlayer" preload="auto"></audio>
+
+    <div class="status" id="status"></div>
   </div>
-  <div id="sc-progress-row">
-    <span id="sc-time-elapsed">0:00</span>
-    <div id="sc-progress-track"><div id="sc-progress-fill"></div></div>
-    <span id="sc-time-total">0:00</span>
-  </div>
-</div>
-<!--
-  Підключення: player.html?sb=PORT  (за замовчуванням 8080 — порт WebSocket Server у Streamer.bot)
 
-  Основний потік (від Streamer.bot):
-    {event:"play", source:"youtube-direct", videoStreamUrl:"...", audioStreamUrl:"..."}
-      <- два окремі прямі лінки від yt-dlp (відео без звуку + звук окремо, бо в сучасних
-         відео на YouTube рідко є один файл з обома одразу) — грається парою <video>+<audio>,
-         синхронізовано, без YouTube-плеєра й реклами
-    {event:"play", source:"soundcloud", trackUrl:"..."}
-      <- через SoundCloud Widget iframe; пауза/відтворення реалізовані повним
-         пересозданням iframe (команди до вже запущеного віджета ненадійні)
-    {event:"preload", videoStreamUrl:"...", audioStreamUrl:"..."}
-      <- наступний YouTube-трек буферизується заздалегідь у фоні, поки грає поточний;
-         коли прийде відповідний "play" з тими самими лінками, старт буде миттєвим
-    {event:"pause"} / {event:"resume"} / {event:"stop"} / {event:"seek", position}
+  <footer>
+    Video.js + синхронізація аудіо/відео потоків
+  </footer>
 
-  Ручний тест без Streamer.bot (стара іфрейм-версія YouTube, ТІЛЬКИ для перевірки з'єднання — з рекламою):
-    player.html?v=VIDEOID
--->
-<script>
-  const params = new URLSearchParams(location.search);
-  const manualVideoId = params.get('v');
-  const sbPort = params.get('sb') || 8080;
+  <!-- Video.js -->
+  <script src="https://vjs.zencdn.net/8.16.1/video.min.js"></script>
 
-  let ytPlayer = null;        // manual-test iframe path only
-  let ytApiReady = false;
-  let pendingYt = null;
-  let scWidget = null;        // SoundCloud Widget API instance (bound to the SC iframe)
-  let videoEl = null;         // video-only stream (yt-dlp) — muted, visual only
-  let audioEl = null;         // audio-only stream (yt-dlp) — actual sound, also the sync master when video is present
-  let syncInterval = null;
-  let preloadVideoEl = null;  // next track's video, buffering quietly in the background (not in the DOM)
-  let preloadAudioEl = null;
-  let preloadUrls = null;     // { videoStreamUrl, audioStreamUrl } of what's currently preloading
-  let progressInterval = null;
-  let lastProgressTick = null;
-  let ws = null;
-  let currentTrack = null;    // { source, videoStreamUrl, audioStreamUrl } | { source, trackUrl } | { source, videoId } (manual)
-  let paused = false;
-  let lastScPosition = 0; // last known SoundCloud position (seconds), used to resume at the right spot
-  let playGeneration = 0;  // bumped every time a new track starts; stale async callbacks check this and bail out
-  const mediaRoot = document.getElementById('media-root'); // holds video/audio/iframe; #sc-card lives outside this and is never wiped
+  <script>
+    const videoEl = document.getElementById('videoPlayer');
+    const audioEl = document.getElementById('audioPlayer');
+    const videoUrlInput = document.getElementById('videoUrl');
+    const audioUrlInput = document.getElementById('audioUrl');
+    const loadBtn = document.getElementById('loadBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const statusEl = document.getElementById('status');
 
-  function mountIframe(src, allow) {
-    mediaRoot.innerHTML = '';
-    const iframe = document.createElement('iframe');
-    iframe.allow = allow || 'autoplay; encrypted-media';
-    iframe.referrerPolicy = 'strict-origin-when-cross-origin';
-    iframe.allowFullscreen = true;
-    iframe.src = src;
-    mediaRoot.appendChild(iframe);
-    return iframe;
-  }
-
-  // Spotify- and YouTube Music-derived tracks are audio-first: skip the video entirely
-  // (even though yt-dlp resolved one) and just play the audio stream, showing the
-  // now-playing card instead. Reuses a preloaded audio element when the URLs match.
-  function playYoutubeAudioCard(audioUrl, meta, youtubeVideoId) {
-    ytPlayer = null;
-    videoEl = null;
-    currentTrack = { source: 'youtube-audio-card', audioStreamUrl: audioUrl, meta: meta, youtubeVideoId: youtubeVideoId };
-    paused = false;
-    clearInterval(syncInterval);
-    const myGeneration = ++playGeneration;
-
-    const usingPreload = !!(preloadUrls && preloadUrls.audioStreamUrl === audioUrl && preloadAudioEl);
-    mediaRoot.innerHTML = '';
-
-    if (usingPreload) {
-      audioEl = preloadAudioEl;
-    } else {
-      audioEl = document.createElement('audio');
-      audioEl.src = audioUrl;
-      audioEl.preload = 'auto';
-      audioEl.referrerPolicy = 'no-referrer';
-    }
-    const myAudioEl = audioEl;
-    myAudioEl.addEventListener('ended', sendEnded);
-    myAudioEl.addEventListener('error', handleStreamLoadError);
-    mediaRoot.appendChild(myAudioEl);
-
-    preloadVideoEl = null;
-    preloadAudioEl = null;
-    preloadUrls = null;
-
-    if (usingPreload && myAudioEl.readyState >= 3) {
-      myAudioEl.play().catch(() => {});
-    } else {
-      myAudioEl.addEventListener('canplay', () => {
-        if (myGeneration !== playGeneration) return; // a newer track has since started
-        myAudioEl.play().catch(() => {});
-      }, { once: true });
-    }
-
-    startProgressReporting((cb) => {
-      if (myGeneration !== playGeneration) return;
-      cb(myAudioEl.currentTime, myAudioEl.duration);
+    // Ініціалізація Video.js
+    const player = videojs('videoPlayer', {
+      controls: true,
+      autoplay: false,
+      preload: 'auto',
+      fluid: true,
+      responsive: true
     });
-    renderScCard(meta);
-    setScCardPaused(false);
-  }
 
-  // ---------- direct dual-stream (yt-dlp) playback — no YouTube player, no ads ----------
-  // Modern YouTube uploads rarely have one file with both video and audio, so we
-  // play a video-only stream (muted) and an audio-only stream side by side. If this
-  // exact pair was already preloading in the background, we reuse those elements
-  // (already buffered, near-instant start) instead of creating fresh ones.
-  function playDualStream(videoUrl, audioUrl, youtubeVideoId) {
-    ytPlayer = null;
-    currentTrack = { source: 'youtube-direct', videoStreamUrl: videoUrl, audioStreamUrl: audioUrl, youtubeVideoId: youtubeVideoId };
-    paused = false;
-    clearInterval(syncInterval);
-    mediaRoot.innerHTML = ''; // safe — preload elements are never appended here
-    const myGeneration = ++playGeneration;
+    let isSyncing = false;          // щоб уникнути рекурсії
+    let syncInterval = null;
 
-    const usingPreload = !!(preloadUrls && preloadUrls.videoStreamUrl === videoUrl &&
-      preloadUrls.audioStreamUrl === audioUrl && preloadVideoEl && preloadAudioEl);
-
-    if (usingPreload) {
-      videoEl = preloadVideoEl;
-      audioEl = preloadAudioEl;
-    } else {
-      videoEl = document.createElement('video');
-      videoEl.src = videoUrl;
-      videoEl.muted = true; // video-only stream has no audio track anyway; muted just to be safe
-      videoEl.preload = 'auto';
-      videoEl.referrerPolicy = 'no-referrer';
-
-      audioEl = document.createElement('audio');
-      audioEl.src = audioUrl;
-      audioEl.preload = 'auto';
-      audioEl.referrerPolicy = 'no-referrer';
-    }
-    // capture these specific elements so a stale callback never touches whatever
-    // videoEl/audioEl have become by the time it fires
-    const myVideoEl = videoEl;
-    const myAudioEl = audioEl;
-    myVideoEl.controls = false;
-    myAudioEl.addEventListener('ended', handleDualStreamEnded);
-    myAudioEl.addEventListener('error', handleStreamLoadError);
-    myVideoEl.addEventListener('error', handleStreamLoadError);
-    mediaRoot.appendChild(myVideoEl);
-    mediaRoot.appendChild(myAudioEl);
-
-    preloadVideoEl = null;
-    preloadAudioEl = null;
-    preloadUrls = null;
-
-    // readyState >= 3 (HAVE_FUTURE_DATA) means enough is buffered to start right away
-    let videoReady = usingPreload && myVideoEl.readyState >= 3;
-    let audioReady = usingPreload && myAudioEl.readyState >= 3;
-    let started = false;
-
-    function tryStart() {
-      if (myGeneration !== playGeneration) return; // a newer track has since started — this attempt is stale
-      if (started || !videoReady || !audioReady) return;
-      started = true;
-      if (!usingPreload) { myVideoEl.currentTime = 0; myAudioEl.currentTime = 0; }
-      Promise.all([myVideoEl.play(), myAudioEl.play()]).catch(() => {});
-      startSyncLoop();
+    function setStatus(msg, type = '') {
+      statusEl.textContent = msg;
+      statusEl.className = 'status' + (type ? ' ' + type : '');
     }
 
-    if (videoReady && audioReady) {
-      tryStart();
-    } else {
-      myVideoEl.addEventListener('canplay', () => { videoReady = true; tryStart(); }, { once: true });
-      myAudioEl.addEventListener('canplay', () => { audioReady = true; tryStart(); }, { once: true });
-      // fallback in case one stream's canplay never fires — don't hang forever
-      setTimeout(() => { videoReady = true; audioReady = true; tryStart(); }, 4000);
-    }
+    function loadSources() {
+      const videoSrc = videoUrlInput.value.trim();
+      const audioSrc = audioUrlInput.value.trim();
 
-    startProgressReporting((cb) => {
-      if (myGeneration !== playGeneration) return; // stale — a newer track has taken over
-      cb(myAudioEl.currentTime, myAudioEl.duration);
-    });
-  }
+      if (!videoSrc) {
+        setStatus('Вкажи посилання на відео', 'error');
+        return;
+      }
 
-  // If a stream fails to load for any reason (bad URL, unsupported format, etc.),
-  // first try the plain official YouTube embed for the same video (has ads, but is
-  // far more reliable for heavily-protected uploads) before giving up and skipping.
-  function handleStreamLoadError() {
-    console.error('Playback failed to load.', currentTrack);
-    if (currentTrack && currentTrack.youtubeVideoId && !currentTrack.triedEmbedFallback) {
-      currentTrack.triedEmbedFallback = true;
-      console.warn('Falling back to the official YouTube embed for this video.');
-      createYtPlayer(currentTrack.youtubeVideoId);
-      return;
-    }
-    console.error('No fallback available, skipping to next track.');
-    sendEnded();
-  }
+      // Очищаємо попереднє
+      stopPlayback();
 
-  // Called when the current youtube-direct track finishes. If the next track is
-  // already sitting preloaded, switch to it immediately — no need to wait for
-  // Streamer.bot's round-trip "play" response, since we already have everything
-  // we need locally. We still notify Streamer.bot in parallel so it can advance
-  // its own queue bookkeeping and preload whatever comes after this.
-  function handleDualStreamEnded() {
-    if (preloadUrls && preloadVideoEl && preloadAudioEl) {
-      playDualStream(preloadUrls.videoStreamUrl, preloadUrls.audioStreamUrl);
-    }
-    sendEnded();
-  }
+      // Встановлюємо джерела
+      player.src({ src: videoSrc, type: guessType(videoSrc) });
+      
+      if (audioSrc) {
+        audioEl.src = audioSrc;
+        audioEl.load();
+      } else {
+        audioEl.removeAttribute('src');
+      }
 
-  // Quietly starts buffering the next track's streams in the background (not attached
-  // to the DOM, not playing) so that when it's actually time to play it, playDualStream
-  // above can reuse these already-buffered elements instead of starting from zero.
-  function preloadDualStream(videoUrl, audioUrl) {
-    if (preloadUrls && preloadUrls.videoStreamUrl === videoUrl && preloadUrls.audioStreamUrl === audioUrl) return;
-    preloadUrls = { videoStreamUrl: videoUrl, audioStreamUrl: audioUrl };
+      setStatus('Завантаження...', '');
 
-    preloadVideoEl = document.createElement('video');
-    preloadVideoEl.src = videoUrl;
-    preloadVideoEl.muted = true;
-    preloadVideoEl.preload = 'auto';
+      // Коли відео готове — запускаємо
+      player.one('loadeddata', () => {
+        setStatus('Готово. Натисни Play', 'success');
+        // Якщо хочеш автоматичний старт — розкоментуй:
+        // player.play().catch(e => console.warn(e));
+      });
 
-    preloadAudioEl = document.createElement('audio');
-    preloadAudioEl.src = audioUrl;
-    preloadAudioEl.preload = 'auto';
-  }
-
-  function startSyncLoop() {
-    clearInterval(syncInterval);
-    syncInterval = setInterval(() => {
-      if (!videoEl || !audioEl || videoEl.paused || audioEl.paused) return;
-      const drift = videoEl.currentTime - audioEl.currentTime;
-      if (Math.abs(drift) > 0.15) videoEl.currentTime = audioEl.currentTime;
-    }, 250);
-  }
-
-  // Reports playback position to Streamer.bot roughly once a second, so the panel
-  // can show a progress bar. getValues is a function that calls back with
-  // (position, duration) read straight from the active audio element.
-  function startProgressReporting(getValues) {
-    clearInterval(progressInterval);
-    function tick() {
-      getValues((position, duration) => {
-        const pos = Number.isFinite(position) ? position : 0;
-        const dur = Number.isFinite(duration) ? duration : 0;
-        doAction('Music - Handle', { cmd: 'progress', position: pos, duration: dur });
+      player.one('error', () => {
+        setStatus('Помилка завантаження відео', 'error');
       });
     }
-    lastProgressTick = tick;
-    tick(); // don't wait a full second for the first update
-    progressInterval = setInterval(tick, 1000);
-  }
 
-  // ---------- SoundCloud (iframe widget) ----------
-  // The widget's own pause()/play() postMessage commands proved unreliable, so pause
-  // fully removes the iframe (guaranteed silence) and resume recreates a fresh one —
-  // but seekTo IS reliable here, so we use it once, right as the new iframe becomes
-  // ready, to jump back to the position we were at before pausing.
-  function playSoundcloud(trackUrl, resumeAt, meta) {
-    ytPlayer = null;
-    videoEl = null;
-    currentTrack = { source: 'soundcloud', trackUrl: trackUrl, meta: meta || currentTrack?.meta };
-    paused = false;
-    lastScPosition = resumeAt || 0;
-    ++playGeneration;
-
-    const iframe = document.createElement('iframe');
-    iframe.id = 'sc-audio-frame';
-    iframe.allow = 'autoplay';
-    iframe.src = 'https://w.soundcloud.com/player/?url=' + encodeURIComponent(trackUrl) +
-      '&auto_play=true&hide_related=true&show_comments=false&show_user=false';
-    mediaRoot.appendChild(iframe);
-    bindScWidget(iframe, resumeAt);
-    renderScCard(currentTrack.meta);
-    setScCardPaused(false);
-  }
-
-  function formatMmSs(sec) {
-    sec = Math.max(0, Math.floor(sec || 0));
-    const m = Math.floor(sec / 60);
-    const s = sec % 60;
-    return m + ':' + String(s).padStart(2, '0');
-  }
-
-  function renderScCard(meta) {
-    const card = document.getElementById('sc-card');
-    if (!meta) { card.style.display = 'none'; return; }
-    document.getElementById('sc-title').textContent = meta.title || 'Без назви';
-    document.getElementById('sc-artist').textContent = meta.artist || '';
-    document.getElementById('sc-requester').textContent = meta.requestedBy ? ('замовив: ' + meta.requestedBy) : '';
-    const avatar = document.getElementById('sc-avatar');
-    avatar.style.backgroundImage = meta.requesterAvatar ? `url('${meta.requesterAvatar}')` : 'none';
-    const bg = document.getElementById('sc-card-bg');
-    bg.style.backgroundImage = meta.artwork ? `url('${meta.artwork}')` : 'none';
-    card.style.display = 'block';
-  }
-
-  function bindScWidget(iframe, resumeAt) {
-    if (typeof SC === 'undefined' || !SC.Widget) {
-      setTimeout(() => bindScWidget(iframe, resumeAt), 150);
-      return;
+    function guessType(url) {
+      if (url.includes('.m3u8')) return 'application/x-mpegURL';
+      if (url.includes('.mpd')) return 'application/dash+xml';
+      if (url.includes('.mp4')) return 'video/mp4';
+      if (url.includes('.webm')) return 'video/webm';
+      return 'application/x-mpegURL'; // за замовчуванням HLS
     }
-    scWidget = SC.Widget(iframe);
-    scWidget.bind(SC.Widget.Events.FINISH, sendEnded);
-    if (resumeAt) {
-      // seekTo is the one widget command that's proven reliable here (unlike pause/play),
-      // so use it once to jump to where we left off, right as the fresh track starts.
-      scWidget.bind(SC.Widget.Events.READY, () => { scWidget.seekTo(resumeAt * 1000); });
+
+    function startSync() {
+      if (syncInterval) return;
+
+      // Періодична перевірка дрейфу (кожні 250 мс)
+      syncInterval = setInterval(() => {
+        if (!audioEl.src || audioEl.paused || player.paused()) return;
+
+        const drift = Math.abs(player.currentTime() - audioEl.currentTime);
+        if (drift > 0.25) { // якщо розійшлися більше ніж на 250 мс
+          isSyncing = true;
+          audioEl.currentTime = player.currentTime();
+          isSyncing = false;
+        }
+      }, 250);
     }
-    startProgressReporting((cb) => {
-      scWidget.getPosition((posMs) => {
-        scWidget.getDuration((durMs) => {
-          lastScPosition = posMs / 1000;
-          const fill = document.getElementById('sc-progress-fill');
-          if (fill && durMs > 0) fill.style.width = Math.min(100, (posMs / durMs) * 100) + '%';
-          const elapsedEl = document.getElementById('sc-time-elapsed');
-          const totalEl = document.getElementById('sc-time-total');
-          if (elapsedEl) elapsedEl.textContent = formatMmSs(posMs / 1000);
-          if (totalEl) totalEl.textContent = formatMmSs(durMs / 1000);
-          cb(posMs / 1000, durMs / 1000);
-        });
-      });
+
+    function stopSync() {
+      if (syncInterval) {
+        clearInterval(syncInterval);
+        syncInterval = null;
+      }
+    }
+
+    function stopPlayback() {
+      player.pause();
+      audioEl.pause();
+      stopSync();
+      player.currentTime(0);
+      audioEl.currentTime = 0;
+      setStatus('');
+    }
+
+    // ===== Синхронізація подій =====
+
+    // Play
+    player.on('play', () => {
+      if (audioEl.src) {
+        audioEl.play().catch(e => console.warn('Audio play error:', e));
+        startSync();
+      }
     });
-  }
 
-  // ---------- manual-test-only YouTube iframe path (has ads, kept only for quick ws-less testing) ----------
-  window.onYouTubeIframeAPIReady = function () {
-    ytApiReady = true;
-    if (pendingYt) { createYtPlayer(pendingYt); pendingYt = null; }
-  };
-  function createYtPlayer(videoId) {
-    mediaRoot.innerHTML = '<div id="yt-target" style="width:100vw;height:100vh;"></div>';
-    videoEl = null;
-    ++playGeneration;
-    ytPlayer = new YT.Player('yt-target', {
-      width: '100%', height: '100%', videoId: videoId,
-      playerVars: { autoplay: 1, controls: 0, modestbranding: 1, rel: 0, origin: location.origin },
-      events: { onStateChange: (e) => { if (e.data === YT.PlayerState.ENDED) sendEnded(); } }
+    // Pause
+    player.on('pause', () => {
+      audioEl.pause();
+      stopSync();
     });
-  }
-  function playYoutubeManual(videoId) {
-    currentTrack = { source: 'youtube-manual', videoId: videoId };
-    paused = false;
-    if (!ytApiReady) { pendingYt = videoId; return; }
-    createYtPlayer(videoId);
-  }
 
-  // ---------- pause / resume / stop ----------
-  // youtube-direct uses real <video>/<audio> elements in our own document, so
-  // pause()/play() work directly and reliably (no cross-origin postMessage involved).
-  // soundcloud (iframe widget) and the manual YouTube iframe path stay on the
-  // teardown-and-rebuild approach, since their runtime commands proved unreliable.
-  function pausePlayback() {
-    if (!currentTrack) return;
-    paused = true;
-    if (videoEl || audioEl) {
-      if (videoEl) videoEl.pause();
-      if (audioEl) audioEl.pause();
-      if (lastProgressTick) lastProgressTick();
-      return;
-    }
-    mediaRoot.innerHTML = '';
-    ytPlayer = null;
-    scWidget = null;
-    setScCardPaused(true);
-  }
-  function resumePlayback() {
-    if (!currentTrack || !paused) return;
-    paused = false;
-    setScCardPaused(false);
-    if (currentTrack.source === 'youtube-direct') {
-      if (videoEl && audioEl) { Promise.all([videoEl.play(), audioEl.play()]).catch(() => {}); }
-      else playDualStream(currentTrack.videoStreamUrl, currentTrack.audioStreamUrl);
-    } else if (currentTrack.source === 'youtube-audio-card') {
-      if (audioEl) { audioEl.play().catch(() => {}); }
-      else playYoutubeAudioCard(currentTrack.audioStreamUrl, currentTrack.meta);
-    } else if (currentTrack.source === 'soundcloud') {
-      playSoundcloud(currentTrack.trackUrl, lastScPosition, currentTrack.meta);
-    } else if (currentTrack.source === 'youtube-manual') {
-      createYtPlayer(currentTrack.videoId);
-    }
-  }
-  function stopPlayback() {
-    clearInterval(syncInterval);
-    clearInterval(progressInterval);
-    mediaRoot.innerHTML = '';
-    ytPlayer = null;
-    scWidget = null;
-    videoEl = null;
-    audioEl = null;
-    currentTrack = null;
-    paused = false;
-    lastScPosition = 0;
-    ++playGeneration;
-    renderScCard(null);
-  }
+    // Seeking / Seeked
+    player.on('seeking', () => {
+      if (audioEl.src && !isSyncing) {
+        isSyncing = true;
+        audioEl.currentTime = player.currentTime();
+        isSyncing = false;
+      }
+    });
 
-  const SC_PLAY_ICON = '<path d="M8 5v14l11-7z"/>';
-  const SC_PAUSE_ICON = '<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>';
-  function setScCardPaused(isPaused) {
-    const icon = document.getElementById('sc-playpause');
-    const eq = document.getElementById('sc-eq');
-    if (!icon || !eq) return;
-    icon.querySelector('svg').innerHTML = isPaused ? SC_PLAY_ICON : SC_PAUSE_ICON;
-    eq.style.animationPlayState = isPaused ? 'paused' : 'running';
-    eq.querySelectorAll('span').forEach((s) => { s.style.animationPlayState = isPaused ? 'paused' : 'running'; });
-  }
+    // Rate change
+    player.on('ratechange', () => {
+      if (audioEl.src) {
+        audioEl.playbackRate = player.playbackRate();
+      }
+    });
 
-  // ---------- Streamer.bot WebSocket ----------
-  function sendEnded() { doAction('Music - Handle', { cmd: 'ended' }); }
+    // Volume (опціонально — можна синхронізувати гучність)
+    player.on('volumechange', () => {
+      // audioEl.volume = player.volume();
+      // audioEl.muted = player.muted();
+    });
 
-  function handleSeek(position) {
-    if (videoEl) videoEl.currentTime = position;
-    if (audioEl) audioEl.currentTime = position;
-    if (scWidget) scWidget.seekTo(position * 1000); // SC Widget API takes milliseconds
-    if (lastProgressTick) lastProgressTick();
-  }
+    // Коли відео закінчилось
+    player.on('ended', () => {
+      audioEl.pause();
+      stopSync();
+    });
 
-  function doAction(name, actionArgs) {
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    ws.send(JSON.stringify({ request: 'DoAction', id: 'player-' + Date.now(), action: { name: name }, args: actionArgs }));
-  }
+    // Кнопки
+    loadBtn.addEventListener('click', loadSources);
+    stopBtn.addEventListener('click', stopPlayback);
 
-  function connectWs() {
-    try {
-      ws = new WebSocket('ws://127.0.0.1:' + sbPort + '/');
-      ws.onopen = () => {
-        ws.send(JSON.stringify({ request: 'Subscribe', id: 'sub-player', events: { General: ['Custom'] } }));
-      };
-      ws.onmessage = (ev) => {
-        let msg;
-        try { msg = JSON.parse(ev.data); } catch (e) { return; }
-        if (!msg.event || msg.event.source !== 'General' || msg.event.type !== 'Custom') return;
-        const data = msg.data || {};
-        if (data.event === 'play' && data.source === 'youtube-direct' && data.cardMode) {
-          const alreadyPlayingThis = currentTrack && currentTrack.source === 'youtube-audio-card' &&
-            currentTrack.audioStreamUrl === data.audioStreamUrl && !paused;
-          if (!alreadyPlayingThis) {
-            playYoutubeAudioCard(data.audioStreamUrl, {
-              title: data.title, artist: data.artist, requestedBy: data.requestedBy,
-              requesterAvatar: data.requesterAvatar, artwork: data.artwork
-            }, data.youtubeVideoId);
-          }
-        }
-        else if (data.event === 'play' && data.source === 'youtube-direct') {
-          const alreadyPlayingThis = currentTrack && currentTrack.source === 'youtube-direct' &&
-            currentTrack.videoStreamUrl === data.videoStreamUrl && currentTrack.audioStreamUrl === data.audioStreamUrl && !paused;
-          if (!alreadyPlayingThis) playDualStream(data.videoStreamUrl, data.audioStreamUrl, data.youtubeVideoId);
-        }
-        else if (data.event === 'play' && data.source === 'soundcloud') {
-          playSoundcloud(data.trackUrl, 0, {
-            title: data.title, artist: data.artist, requestedBy: data.requestedBy, requesterAvatar: data.requesterAvatar
-          });
-        }
-        else if (data.event === 'preload') preloadDualStream(data.videoStreamUrl, data.audioStreamUrl);
-        else if (data.event === 'pause') pausePlayback();
-        else if (data.event === 'resume') resumePlayback();
-        else if (data.event === 'stop') stopPlayback();
-        else if (data.event === 'seek') handleSeek(data.position);
-      };
-      ws.onclose = () => setTimeout(connectWs, 2000);
-      ws.onerror = () => ws.close();
-    } catch (e) {
-      setTimeout(connectWs, 2000);
-    }
-  }
-
-  // ---------- boot ----------
-  if (manualVideoId) {
-    const s1 = document.createElement('script'); s1.src = 'https://www.youtube.com/iframe_api'; document.head.appendChild(s1);
-    const wait = setInterval(() => { if (ytApiReady) { clearInterval(wait); playYoutubeManual(manualVideoId); } }, 150);
-  } else {
-    const s1 = document.createElement('script'); s1.src = 'https://www.youtube.com/iframe_api'; document.head.appendChild(s1);
-  }
-  const s2 = document.createElement('script'); s2.src = 'https://w.soundcloud.com/player/api.js'; document.head.appendChild(s2);
-  connectWs();
-</script>
+    // Enter у полях
+    videoUrlInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') loadSources();
+    });
+    audioUrlInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') loadSources();
+    });
+  </script>
 </body>
 </html>
