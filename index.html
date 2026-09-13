@@ -190,6 +190,7 @@
   let currentTrack = null;    // { source, videoStreamUrl, audioStreamUrl } | { source, trackUrl } | { source, videoId } (manual)
   let paused = false;
   let lastScPosition = 0; // last known SoundCloud position (seconds), used to resume at the right spot
+  let playGeneration = 0;  // bumped every time a new track starts; stale async callbacks check this and bail out
   const mediaRoot = document.getElementById('media-root'); // holds video/audio/iframe; #sc-card lives outside this and is never wiped
 
   function mountIframe(src, allow) {
@@ -212,6 +213,7 @@
     currentTrack = { source: 'youtube-audio-card', audioStreamUrl: audioUrl, meta: meta };
     paused = false;
     clearInterval(syncInterval);
+    const myGeneration = ++playGeneration;
 
     const usingPreload = !!(preloadUrls && preloadUrls.audioStreamUrl === audioUrl && preloadAudioEl);
     mediaRoot.innerHTML = '';
@@ -223,21 +225,28 @@
       audioEl.src = audioUrl;
       audioEl.preload = 'auto';
     }
-    audioEl.addEventListener('ended', sendEnded);
-    audioEl.addEventListener('error', handleStreamLoadError);
-    mediaRoot.appendChild(audioEl);
+    const myAudioEl = audioEl;
+    myAudioEl.addEventListener('ended', sendEnded);
+    myAudioEl.addEventListener('error', handleStreamLoadError);
+    mediaRoot.appendChild(myAudioEl);
 
     preloadVideoEl = null;
     preloadAudioEl = null;
     preloadUrls = null;
 
-    if (usingPreload && audioEl.readyState >= 3) {
-      audioEl.play().catch(() => {});
+    if (usingPreload && myAudioEl.readyState >= 3) {
+      myAudioEl.play().catch(() => {});
     } else {
-      audioEl.addEventListener('canplay', () => audioEl.play().catch(() => {}), { once: true });
+      myAudioEl.addEventListener('canplay', () => {
+        if (myGeneration !== playGeneration) return; // a newer track has since started
+        myAudioEl.play().catch(() => {});
+      }, { once: true });
     }
 
-    startProgressReporting((cb) => cb(audioEl.currentTime, audioEl.duration));
+    startProgressReporting((cb) => {
+      if (myGeneration !== playGeneration) return;
+      cb(myAudioEl.currentTime, myAudioEl.duration);
+    });
     renderScCard(meta);
     setScCardPaused(false);
   }
@@ -253,6 +262,7 @@
     paused = false;
     clearInterval(syncInterval);
     mediaRoot.innerHTML = ''; // safe — preload elements are never appended here
+    const myGeneration = ++playGeneration;
 
     const usingPreload = !!(preloadUrls && preloadUrls.videoStreamUrl === videoUrl &&
       preloadUrls.audioStreamUrl === audioUrl && preloadVideoEl && preloadAudioEl);
@@ -270,40 +280,48 @@
       audioEl.src = audioUrl;
       audioEl.preload = 'auto';
     }
-    videoEl.controls = false;
-    audioEl.addEventListener('ended', handleDualStreamEnded);
-    audioEl.addEventListener('error', handleStreamLoadError);
-    videoEl.addEventListener('error', handleStreamLoadError);
-    mediaRoot.appendChild(videoEl);
-    mediaRoot.appendChild(audioEl);
+    // capture these specific elements so a stale callback never touches whatever
+    // videoEl/audioEl have become by the time it fires
+    const myVideoEl = videoEl;
+    const myAudioEl = audioEl;
+    myVideoEl.controls = false;
+    myAudioEl.addEventListener('ended', handleDualStreamEnded);
+    myAudioEl.addEventListener('error', handleStreamLoadError);
+    myVideoEl.addEventListener('error', handleStreamLoadError);
+    mediaRoot.appendChild(myVideoEl);
+    mediaRoot.appendChild(myAudioEl);
 
     preloadVideoEl = null;
     preloadAudioEl = null;
     preloadUrls = null;
 
     // readyState >= 3 (HAVE_FUTURE_DATA) means enough is buffered to start right away
-    let videoReady = usingPreload && videoEl.readyState >= 3;
-    let audioReady = usingPreload && audioEl.readyState >= 3;
+    let videoReady = usingPreload && myVideoEl.readyState >= 3;
+    let audioReady = usingPreload && myAudioEl.readyState >= 3;
     let started = false;
 
     function tryStart() {
+      if (myGeneration !== playGeneration) return; // a newer track has since started — this attempt is stale
       if (started || !videoReady || !audioReady) return;
       started = true;
-      if (!usingPreload) { videoEl.currentTime = 0; audioEl.currentTime = 0; }
-      Promise.all([videoEl.play(), audioEl.play()]).catch(() => {});
+      if (!usingPreload) { myVideoEl.currentTime = 0; myAudioEl.currentTime = 0; }
+      Promise.all([myVideoEl.play(), myAudioEl.play()]).catch(() => {});
       startSyncLoop();
     }
 
     if (videoReady && audioReady) {
       tryStart();
     } else {
-      videoEl.addEventListener('canplay', () => { videoReady = true; tryStart(); }, { once: true });
-      audioEl.addEventListener('canplay', () => { audioReady = true; tryStart(); }, { once: true });
+      myVideoEl.addEventListener('canplay', () => { videoReady = true; tryStart(); }, { once: true });
+      myAudioEl.addEventListener('canplay', () => { audioReady = true; tryStart(); }, { once: true });
       // fallback in case one stream's canplay never fires — don't hang forever
       setTimeout(() => { videoReady = true; audioReady = true; tryStart(); }, 4000);
     }
 
-    startProgressReporting((cb) => cb(audioEl.currentTime, audioEl.duration));
+    startProgressReporting((cb) => {
+      if (myGeneration !== playGeneration) return; // stale — a newer track has taken over
+      cb(myAudioEl.currentTime, myAudioEl.duration);
+    });
   }
 
   // If a stream fails to load for any reason (bad URL, unsupported format, etc.),
@@ -379,6 +397,7 @@
     currentTrack = { source: 'soundcloud', trackUrl: trackUrl, meta: meta || currentTrack?.meta };
     paused = false;
     lastScPosition = resumeAt || 0;
+    ++playGeneration;
 
     const iframe = document.createElement('iframe');
     iframe.id = 'sc-audio-frame';
@@ -447,6 +466,7 @@
   function createYtPlayer(videoId) {
     mediaRoot.innerHTML = '<div id="yt-target" style="width:100vw;height:100vh;"></div>';
     videoEl = null;
+    ++playGeneration;
     ytPlayer = new YT.Player('yt-target', {
       width: '100%', height: '100%', videoId: videoId,
       playerVars: { autoplay: 1, controls: 0, modestbranding: 1, rel: 0, origin: location.origin },
@@ -506,6 +526,7 @@
     currentTrack = null;
     paused = false;
     lastScPosition = 0;
+    ++playGeneration;
     renderScCard(null);
   }
 
