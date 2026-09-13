@@ -78,6 +78,8 @@
     }
     videoEl.controls = false;
     audioEl.addEventListener('ended', handleDualStreamEnded);
+    audioEl.addEventListener('error', handleStreamLoadError);
+    videoEl.addEventListener('error', handleStreamLoadError);
     document.body.appendChild(videoEl);
     document.body.appendChild(audioEl);
 
@@ -108,6 +110,13 @@
     }
 
     startProgressReporting((cb) => cb(audioEl.currentTime, audioEl.duration));
+  }
+
+  // If a stream fails to load for any reason (bad URL, unsupported format, etc.),
+  // don't just sit there silently — skip ahead like the track ended normally.
+  function handleStreamLoadError() {
+    console.error('Playback failed to load, skipping to next track.', currentTrack);
+    sendEnded();
   }
 
   // Called when the current youtube-direct track finishes. If the next track is
@@ -178,6 +187,7 @@
     audioEl.src = streamUrl;
     audioEl.autoplay = true;
     audioEl.addEventListener('ended', sendEnded);
+    audioEl.addEventListener('error', handleStreamLoadError);
     document.body.appendChild(audioEl);
 
     startProgressReporting((cb) => cb(audioEl.currentTime, audioEl.duration));
