@@ -207,10 +207,10 @@
   // Spotify- and YouTube Music-derived tracks are audio-first: skip the video entirely
   // (even though yt-dlp resolved one) and just play the audio stream, showing the
   // now-playing card instead. Reuses a preloaded audio element when the URLs match.
-  function playYoutubeAudioCard(audioUrl, meta) {
+  function playYoutubeAudioCard(audioUrl, meta, youtubeVideoId) {
     ytPlayer = null;
     videoEl = null;
-    currentTrack = { source: 'youtube-audio-card', audioStreamUrl: audioUrl, meta: meta };
+    currentTrack = { source: 'youtube-audio-card', audioStreamUrl: audioUrl, meta: meta, youtubeVideoId: youtubeVideoId };
     paused = false;
     clearInterval(syncInterval);
     const myGeneration = ++playGeneration;
@@ -257,9 +257,9 @@
   // play a video-only stream (muted) and an audio-only stream side by side. If this
   // exact pair was already preloading in the background, we reuse those elements
   // (already buffered, near-instant start) instead of creating fresh ones.
-  function playDualStream(videoUrl, audioUrl) {
+  function playDualStream(videoUrl, audioUrl, youtubeVideoId) {
     ytPlayer = null;
-    currentTrack = { source: 'youtube-direct', videoStreamUrl: videoUrl, audioStreamUrl: audioUrl };
+    currentTrack = { source: 'youtube-direct', videoStreamUrl: videoUrl, audioStreamUrl: audioUrl, youtubeVideoId: youtubeVideoId };
     paused = false;
     clearInterval(syncInterval);
     mediaRoot.innerHTML = ''; // safe — preload elements are never appended here
@@ -328,9 +328,17 @@
   }
 
   // If a stream fails to load for any reason (bad URL, unsupported format, etc.),
-  // don't just sit there silently — skip ahead like the track ended normally.
+  // first try the plain official YouTube embed for the same video (has ads, but is
+  // far more reliable for heavily-protected uploads) before giving up and skipping.
   function handleStreamLoadError() {
-    console.error('Playback failed to load, skipping to next track.', currentTrack);
+    console.error('Playback failed to load.', currentTrack);
+    if (currentTrack && currentTrack.youtubeVideoId && !currentTrack.triedEmbedFallback) {
+      currentTrack.triedEmbedFallback = true;
+      console.warn('Falling back to the official YouTube embed for this video.');
+      createYtPlayer(currentTrack.youtubeVideoId);
+      return;
+    }
+    console.error('No fallback available, skipping to next track.');
     sendEnded();
   }
 
@@ -577,13 +585,13 @@
             playYoutubeAudioCard(data.audioStreamUrl, {
               title: data.title, artist: data.artist, requestedBy: data.requestedBy,
               requesterAvatar: data.requesterAvatar, artwork: data.artwork
-            });
+            }, data.youtubeVideoId);
           }
         }
         else if (data.event === 'play' && data.source === 'youtube-direct') {
           const alreadyPlayingThis = currentTrack && currentTrack.source === 'youtube-direct' &&
             currentTrack.videoStreamUrl === data.videoStreamUrl && currentTrack.audioStreamUrl === data.audioStreamUrl && !paused;
-          if (!alreadyPlayingThis) playDualStream(data.videoStreamUrl, data.audioStreamUrl);
+          if (!alreadyPlayingThis) playDualStream(data.videoStreamUrl, data.audioStreamUrl, data.youtubeVideoId);
         }
         else if (data.event === 'play' && data.source === 'soundcloud') {
           playSoundcloud(data.trackUrl, 0, {
