@@ -17,9 +17,9 @@
       <- два окремі прямі лінки від yt-dlp (відео без звуку + звук окремо, бо в сучасних
          відео на YouTube рідко є один файл з обома одразу) — грається парою <video>+<audio>,
          синхронізовано, без YouTube-плеєра й реклами
-    {event:"play", source:"soundcloud-direct", streamUrl:"..."}
-      <- SoundCloud теж через yt-dlp, один прямий аудіопотік — грається звичайним <audio>-тегом,
-         без iframe-віджета (команди до нього виявились ненадійними)
+    {event:"play", source:"soundcloud", trackUrl:"..."}
+      <- через SoundCloud Widget iframe; пауза/відтворення реалізовані повним
+         пересозданням iframe (команди до вже запущеного віджета ненадійні)
     {event:"preload", videoStreamUrl:"...", audioStreamUrl:"..."}
       <- наступний YouTube-трек буферизується заздалегідь у фоні, поки грає поточний;
          коли прийде відповідний "play" з тими самими лінками, старт буде миттєвим
@@ -36,6 +36,7 @@
   let ytPlayer = null;        // manual-test iframe path only
   let ytApiReady = false;
   let pendingYt = null;
+  let scWidget = null;        // SoundCloud Widget API instance (bound to the SC iframe)
   let videoEl = null;         // video-only stream (yt-dlp) — muted, visual only
   let audioEl = null;         // audio-only stream (yt-dlp) — actual sound, also the sync master when video is present
   let syncInterval = null;
@@ -45,8 +46,19 @@
   let progressInterval = null;
   let lastProgressTick = null;
   let ws = null;
-  let currentTrack = null;    // { source, videoStreamUrl, audioStreamUrl } | { source, streamUrl } | { source, videoId } (manual)
+  let currentTrack = null;    // { source, videoStreamUrl, audioStreamUrl } | { source, trackUrl } | { source, videoId } (manual)
   let paused = false;
+
+  function mountIframe(src, allow) {
+    document.body.innerHTML = '';
+    const iframe = document.createElement('iframe');
+    iframe.allow = allow || 'autoplay; encrypted-media';
+    iframe.referrerPolicy = 'strict-origin-when-cross-origin';
+    iframe.allowFullscreen = true;
+    iframe.src = src;
+    document.body.appendChild(iframe);
+    return iframe;
+  }
 
   // ---------- direct dual-stream (yt-dlp) playback — no YouTube player, no ads ----------
   // Modern YouTube uploads rarely have one file with both video and audio, so we
@@ -174,23 +186,36 @@
     progressInterval = setInterval(tick, 1000);
   }
 
-  // ---------- SoundCloud (direct audio stream via yt-dlp, same reliability as YouTube) ----------
-  function playSoundcloudDirect(streamUrl) {
+  // ---------- SoundCloud (iframe widget) ----------
+  // The widget's own pause()/play() postMessage commands proved unreliable, so we
+  // don't rely on them at all: pause fully removes the iframe (guaranteed silence),
+  // resume recreates a fresh one with the same track (starts over from the top —
+  // less ideal than a true resume, but this is the one approach that actually works).
+  function playSoundcloud(trackUrl) {
     ytPlayer = null;
     videoEl = null;
-    currentTrack = { source: 'soundcloud-direct', streamUrl: streamUrl };
+    currentTrack = { source: 'soundcloud', trackUrl: trackUrl };
     paused = false;
-    clearInterval(syncInterval);
-    document.body.innerHTML = '';
+    const iframe = mountIframe(
+      'https://w.soundcloud.com/player/?url=' + encodeURIComponent(trackUrl) +
+      '&auto_play=true&hide_related=true&show_comments=false&show_user=false',
+      'autoplay'
+    );
+    bindScWidget(iframe);
+  }
 
-    audioEl = document.createElement('audio');
-    audioEl.src = streamUrl;
-    audioEl.autoplay = true;
-    audioEl.addEventListener('ended', sendEnded);
-    audioEl.addEventListener('error', handleStreamLoadError);
-    document.body.appendChild(audioEl);
-
-    startProgressReporting((cb) => cb(audioEl.currentTime, audioEl.duration));
+  function bindScWidget(iframe) {
+    if (typeof SC === 'undefined' || !SC.Widget) {
+      setTimeout(() => bindScWidget(iframe), 150);
+      return;
+    }
+    scWidget = SC.Widget(iframe);
+    scWidget.bind(SC.Widget.Events.FINISH, sendEnded);
+    startProgressReporting((cb) => {
+      scWidget.getPosition((posMs) => {
+        scWidget.getDuration((durMs) => cb(posMs / 1000, durMs / 1000));
+      });
+    });
   }
 
   // ---------- manual-test-only YouTube iframe path (has ads, kept only for quick ws-less testing) ----------
@@ -215,10 +240,10 @@
   }
 
   // ---------- pause / resume / stop ----------
-  // Both youtube-direct and soundcloud-direct use real <video>/<audio> elements in
-  // our own document, so pause()/play() work directly and reliably (no cross-origin
-  // postMessage involved). Only the manual YouTube iframe fallback still needs the
-  // teardown-and-rebuild approach.
+  // youtube-direct uses real <video>/<audio> elements in our own document, so
+  // pause()/play() work directly and reliably (no cross-origin postMessage involved).
+  // soundcloud (iframe widget) and the manual YouTube iframe path stay on the
+  // teardown-and-rebuild approach, since their runtime commands proved unreliable.
   function pausePlayback() {
     if (!currentTrack) return;
     paused = true;
@@ -230,6 +255,7 @@
     }
     document.body.innerHTML = '';
     ytPlayer = null;
+    scWidget = null;
   }
   function resumePlayback() {
     if (!currentTrack || !paused) return;
@@ -237,9 +263,8 @@
     if (currentTrack.source === 'youtube-direct') {
       if (videoEl && audioEl) { Promise.all([videoEl.play(), audioEl.play()]).catch(() => {}); }
       else playDualStream(currentTrack.videoStreamUrl, currentTrack.audioStreamUrl);
-    } else if (currentTrack.source === 'soundcloud-direct') {
-      if (audioEl) { audioEl.play().catch(() => {}); }
-      else playSoundcloudDirect(currentTrack.streamUrl);
+    } else if (currentTrack.source === 'soundcloud') {
+      playSoundcloud(currentTrack.trackUrl);
     } else if (currentTrack.source === 'youtube-manual') {
       createYtPlayer(currentTrack.videoId);
     }
@@ -249,6 +274,7 @@
     clearInterval(progressInterval);
     document.body.innerHTML = '';
     ytPlayer = null;
+    scWidget = null;
     videoEl = null;
     audioEl = null;
     currentTrack = null;
@@ -261,6 +287,7 @@
   function handleSeek(position) {
     if (videoEl) videoEl.currentTime = position;
     if (audioEl) audioEl.currentTime = position;
+    if (scWidget) scWidget.seekTo(position * 1000); // SC Widget API takes milliseconds
     if (lastProgressTick) lastProgressTick();
   }
 
@@ -285,7 +312,7 @@
             currentTrack.videoStreamUrl === data.videoStreamUrl && currentTrack.audioStreamUrl === data.audioStreamUrl && !paused;
           if (!alreadyPlayingThis) playDualStream(data.videoStreamUrl, data.audioStreamUrl);
         }
-        else if (data.event === 'play' && data.source === 'soundcloud-direct') playSoundcloudDirect(data.streamUrl);
+        else if (data.event === 'play' && data.source === 'soundcloud') playSoundcloud(data.trackUrl);
         else if (data.event === 'preload') preloadDualStream(data.videoStreamUrl, data.audioStreamUrl);
         else if (data.event === 'pause') pausePlayback();
         else if (data.event === 'resume') resumePlayback();
@@ -295,7 +322,7 @@
       ws.onclose = () => setTimeout(connectWs, 2000);
       ws.onerror = () => ws.close();
     } catch (e) {
-      setTimeout(connectWs, 2000);
+      setTimeout(connectWs, 2001);
     }
   }
 
@@ -306,6 +333,7 @@
   } else {
     const s1 = document.createElement('script'); s1.src = 'https://www.youtube.com/iframe_api'; document.head.appendChild(s1);
   }
+  const s2 = document.createElement('script'); s2.src = 'https://w.soundcloud.com/player/api.js'; document.head.appendChild(s2);
   connectWs();
 </script>
 </body>
