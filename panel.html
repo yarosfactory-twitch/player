@@ -33,8 +33,7 @@
   #playpause svg { width: 15px; height: 15px; fill: #e6e6e6; }
 
   #progress-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
-  #progress-track { flex: 1; height: 4px; background: #2b2f35; border-radius: 2px; position: relative; overflow: hidden; }
-  #progress-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0%; background: #5b8cff; border-radius: 2px; }
+  #progress-slider { flex: 1; height: 4px; accent-color: #5b8cff; cursor: pointer; }
   #time-label { font-size: 11px; color: #9aa0a8; white-space: nowrap; min-width: 78px; text-align: right; }
 
   #skip-btn {
@@ -85,7 +84,7 @@
     </div>
   </div>
   <div id="progress-row">
-    <div id="progress-track"><div id="progress-fill"></div></div>
+    <input type="range" id="progress-slider" min="0" max="1000" value="0">
     <div id="time-label">00:00 / 00:00</div>
   </div>
   <button id="skip-btn"><svg viewBox="0 0 24 24"><path d="M6 6l8 6-8 6zM16 6h2v12h-2z"/></svg></button>
@@ -114,6 +113,8 @@
   const statusEl = document.getElementById('status');
   let ws;
   let lastPaused = false;
+  let lastDuration = 0;
+  let isSeeking = false;
 
   const ICONS = {
     youtube: '<rect x="1" y="4" width="22" height="16" rx="4" fill="#ff0000"/><path d="M10 8.5l7 3.5-7 3.5z" fill="#fff"/>',
@@ -195,11 +196,13 @@
   }
 
   function renderProgress(position, duration) {
-    const fill = document.getElementById('progress-fill');
-    const label = document.getElementById('time-label');
-    const pct = duration > 0 ? Math.min(100, (position / duration) * 100) : 0;
-    fill.style.width = pct + '%';
-    label.textContent = formatTime(position) + ' / ' + formatTime(duration);
+    lastDuration = duration || 0;
+    document.getElementById('time-label').textContent = formatTime(position) + ' / ' + formatTime(duration);
+    if (!isSeeking) {
+      const slider = document.getElementById('progress-slider');
+      const pct = duration > 0 ? Math.min(1000, (position / duration) * 1000) : 0;
+      slider.value = pct;
+    }
   }
 
   function renderBanGroup(elId, values, type) {
@@ -215,6 +218,19 @@
     doAction({ cmd: lastPaused ? 'resume' : 'pause' });
   });
   document.getElementById('skip-btn').addEventListener('click', () => doAction({ cmd: 'skip' }));
+
+  const slider = document.getElementById('progress-slider');
+  const beginSeek = () => { isSeeking = true; };
+  slider.addEventListener('mousedown', beginSeek);
+  slider.addEventListener('touchstart', beginSeek);
+  slider.addEventListener('change', () => {
+    const fraction = Number(slider.value) / 1000;
+    const targetPosition = fraction * lastDuration;
+    doAction({ cmd: 'seek', position: targetPosition });
+    // keep ignoring incoming progress updates a little longer, so a stale one
+    // doesn't snap the slider back before the new position is confirmed
+    setTimeout(() => { isSeeking = false; }, 500);
+  });
 
   document.body.addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-action]');
