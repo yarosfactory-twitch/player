@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Синхронний Video + Audio плеєр (Video.js)</title>
-  
-  <!-- Video.js CSS -->
+  <title>Синхронний Video + Audio (Video.js + hls.js)</title>
+
+  <!-- Video.js -->
   <link href="https://vjs.zencdn.net/8.16.1/video-js.css" rel="stylesheet" />
   
   <style>
@@ -18,11 +18,7 @@
       --muted: #9ca3af;
     }
 
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -35,22 +31,19 @@
       padding: 2rem 1rem;
     }
 
-    .container {
-      width: 100%;
-      max-width: 900px;
-    }
+    .container { width: 100%; max-width: 900px; }
 
     h1 {
       font-size: 1.5rem;
       font-weight: 600;
-      margin-bottom: 0.5rem;
+      margin-bottom: 0.4rem;
       text-align: center;
     }
 
     .subtitle {
       color: var(--muted);
       text-align: center;
-      margin-bottom: 2rem;
+      margin-bottom: 1.8rem;
       font-size: 0.95rem;
     }
 
@@ -62,19 +55,14 @@
       margin-bottom: 1.5rem;
     }
 
-    .field {
-      margin-bottom: 1.25rem;
-    }
-
-    .field:last-child {
-      margin-bottom: 0;
-    }
+    .field { margin-bottom: 1.2rem; }
+    .field:last-of-type { margin-bottom: 0; }
 
     label {
       display: block;
       font-size: 0.875rem;
       font-weight: 500;
-      margin-bottom: 0.4rem;
+      margin-bottom: 0.35rem;
       color: var(--muted);
     }
 
@@ -86,7 +74,6 @@
       border-radius: 8px;
       color: var(--text);
       font-size: 0.95rem;
-      transition: border-color 0.2s;
     }
 
     input[type="url"]:focus {
@@ -98,7 +85,7 @@
       display: flex;
       gap: 0.75rem;
       flex-wrap: wrap;
-      margin-top: 1.25rem;
+      margin-top: 1.3rem;
     }
 
     button {
@@ -111,27 +98,13 @@
       transition: background 0.2s, transform 0.1s;
     }
 
-    button:active {
-      transform: scale(0.98);
-    }
+    button:active { transform: scale(0.98); }
 
-    .btn-primary {
-      background: var(--accent);
-      color: white;
-    }
+    .btn-primary { background: var(--accent); color: white; }
+    .btn-primary:hover { background: #2563eb; }
 
-    .btn-primary:hover {
-      background: #2563eb;
-    }
-
-    .btn-secondary {
-      background: #2a2a36;
-      color: var(--text);
-    }
-
-    .btn-secondary:hover {
-      background: #353545;
-    }
+    .btn-secondary { background: #2a2a36; color: var(--text); }
+    .btn-secondary:hover { background: #353545; }
 
     .player-wrapper {
       position: relative;
@@ -148,18 +121,25 @@
 
     .status {
       margin-top: 1rem;
-      font-size: 0.875rem;
+      font-size: 0.9rem;
       color: var(--muted);
       text-align: center;
       min-height: 1.4em;
+      line-height: 1.4;
     }
 
-    .status.error {
-      color: #f87171;
-    }
+    .status.error { color: #f87171; }
+    .status.success { color: #4ade80; }
+    .status.info { color: #60a5fa; }
 
-    .status.success {
-      color: #4ade80;
+    .tips {
+      margin-top: 1.5rem;
+      font-size: 0.8rem;
+      color: var(--muted);
+      line-height: 1.5;
+      background: #16161d;
+      border-radius: 8px;
+      padding: 0.9rem 1rem;
     }
 
     footer {
@@ -173,17 +153,17 @@
 <body>
   <div class="container">
     <h1>Синхронний Video + Audio</h1>
-    <p class="subtitle">Встав посилання на відео- та аудіо-потоки — вони будуть відтворюватися синхронно</p>
+    <p class="subtitle">Встав посилання на відео- та аудіо-потоки</p>
 
     <div class="card">
       <div class="field">
         <label for="videoUrl">Посилання на відео-потік</label>
-        <input type="url" id="videoUrl" placeholder="https://example.com/video.m3u8 або .mp4" />
+        <input type="url" id="videoUrl" placeholder="https://.../playlist.m3u8  або  .mp4" />
       </div>
 
       <div class="field">
         <label for="audioUrl">Посилання на аудіо-потік</label>
-        <input type="url" id="audioUrl" placeholder="https://example.com/audio.m3u8 або .mp3 / .aac" />
+        <input type="url" id="audioUrl" placeholder="https://.../audio.m3u8  або  .mp3 / .aac / .m4a" />
       </div>
 
       <div class="buttons">
@@ -202,103 +182,178 @@
       ></video>
     </div>
 
-    <!-- Окремий аудіо-елемент (прихований) -->
+    <!-- Прихований аудіо-елемент -->
     <audio id="audioPlayer" preload="auto"></audio>
 
     <div class="status" id="status"></div>
+
+    <div class="tips">
+      <strong>Якщо з’являється помилка завантаження:</strong><br>
+      • Перевір, чи посилання відкриваються в браузері (CORS часто блокує)<br>
+      • Для HLS (.m3u8) сторінка використовує hls.js — має працювати в Chrome/Firefox<br>
+      • Краще використовувати HTTPS-посилання<br>
+      • Спробуй спочатку тільки відео (залиш аудіо порожнім)
+    </div>
   </div>
 
-  <footer>
-    Video.js + синхронізація аудіо/відео потоків
-  </footer>
+  <footer>Video.js + hls.js • синхронне відтворення</footer>
 
-  <!-- Video.js -->
+  <!-- Бібліотеки -->
   <script src="https://vjs.zencdn.net/8.16.1/video.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.7"></script>
 
   <script>
-    const videoEl = document.getElementById('videoPlayer');
-    const audioEl = document.getElementById('audioPlayer');
-    const videoUrlInput = document.getElementById('videoUrl');
-    const audioUrlInput = document.getElementById('audioUrl');
-    const loadBtn = document.getElementById('loadBtn');
-    const stopBtn = document.getElementById('stopBtn');
-    const statusEl = document.getElementById('status');
+    const videoEl   = document.getElementById('videoPlayer');
+    const audioEl   = document.getElementById('audioPlayer');
+    const videoUrl  = document.getElementById('videoUrl');
+    const audioUrl  = document.getElementById('audioUrl');
+    const loadBtn   = document.getElementById('loadBtn');
+    const stopBtn   = document.getElementById('stopBtn');
+    const statusEl  = document.getElementById('status');
 
-    // Ініціалізація Video.js
     const player = videojs('videoPlayer', {
       controls: true,
       autoplay: false,
       preload: 'auto',
       fluid: true,
-      responsive: true
+      html5: {
+        vhs: {
+          overrideNative: true   // примусово використовуємо VHS навіть у Safari
+        }
+      }
     });
 
-    let isSyncing = false;          // щоб уникнути рекурсії
+    let hlsAudio = null;          // екземпляр hls.js для аудіо
     let syncInterval = null;
+    let isSyncing = false;
 
     function setStatus(msg, type = '') {
       statusEl.textContent = msg;
       statusEl.className = 'status' + (type ? ' ' + type : '');
     }
 
-    function loadSources() {
-      const videoSrc = videoUrlInput.value.trim();
-      const audioSrc = audioUrlInput.value.trim();
+    function isHls(url) {
+      return url && (url.includes('.m3u8') || url.includes('m3u8'));
+    }
 
-      if (!videoSrc) {
+    function guessVideoType(url) {
+      if (isHls(url)) return 'application/x-mpegURL';
+      if (url.includes('.mpd')) return 'application/dash+xml';
+      if (url.includes('.mp4')) return 'video/mp4';
+      if (url.includes('.webm')) return 'video/webm';
+      return 'application/x-mpegURL';
+    }
+
+    // ========== Завантаження ==========
+    function loadSources() {
+      const vSrc = videoUrl.value.trim();
+      const aSrc = audioUrl.value.trim();
+
+      if (!vSrc) {
         setStatus('Вкажи посилання на відео', 'error');
         return;
       }
 
-      // Очищаємо попереднє
-      stopPlayback();
+      stopPlayback(true); // повне очищення
 
-      // Встановлюємо джерела
-      player.src({ src: videoSrc, type: guessType(videoSrc) });
-      
-      if (audioSrc) {
-        audioEl.src = audioSrc;
-        audioEl.load();
-      } else {
-        audioEl.removeAttribute('src');
-      }
+      setStatus('Завантаження відео...', 'info');
 
-      setStatus('Завантаження...', '');
+      // --- Відео (Video.js) ---
+      player.src({
+        src: vSrc,
+        type: guessVideoType(vSrc)
+      });
 
-      // Коли відео готове — запускаємо
       player.one('loadeddata', () => {
-        setStatus('Готово. Натисни Play', 'success');
-        // Якщо хочеш автоматичний старт — розкоментуй:
-        // player.play().catch(e => console.warn(e));
+        setStatus(aSrc ? 'Відео готове. Завантаження аудіо...' : 'Готово. Натисни Play', aSrc ? 'info' : 'success');
       });
 
       player.one('error', () => {
-        setStatus('Помилка завантаження відео', 'error');
+        const err = player.error();
+        let msg = 'Помилка відео: ';
+        if (err) {
+          switch (err.code) {
+            case 1: msg += 'завантаження перервано'; break;
+            case 2: msg += 'мережева помилка / CORS'; break;
+            case 3: msg += 'помилка декодування'; break;
+            case 4: msg += 'формат не підтримується або файл недоступний'; break;
+            default: msg += err.message || 'невідома помилка';
+          }
+        } else {
+          msg += 'невідома помилка';
+        }
+        setStatus(msg, 'error');
       });
+
+      // --- Аудіо ---
+      if (aSrc) {
+        loadAudio(aSrc);
+      }
     }
 
-    function guessType(url) {
-      if (url.includes('.m3u8')) return 'application/x-mpegURL';
-      if (url.includes('.mpd')) return 'application/dash+xml';
-      if (url.includes('.mp4')) return 'video/mp4';
-      if (url.includes('.webm')) return 'video/webm';
-      return 'application/x-mpegURL'; // за замовчуванням HLS
+    function loadAudio(src) {
+      // Спочатку пробуємо через hls.js, якщо це HLS
+      if (isHls(src) && Hls.isSupported()) {
+        if (hlsAudio) {
+          hlsAudio.destroy();
+          hlsAudio = null;
+        }
+
+        hlsAudio = new Hls({
+          enableWorker: true,
+          lowLatencyMode: true
+        });
+
+        hlsAudio.loadSource(src);
+        hlsAudio.attachMedia(audioEl);
+
+        hlsAudio.on(Hls.Events.MANIFEST_PARSED, () => {
+          setStatus('Обидва потоки готові. Натисни Play', 'success');
+        });
+
+        hlsAudio.on(Hls.Events.ERROR, (event, data) => {
+          if (data.fatal) {
+            setStatus('Помилка аудіо (HLS): ' + (data.details || data.type), 'error');
+            // Спробуємо відновити
+            if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+              hlsAudio.startLoad();
+            } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+              hlsAudio.recoverMediaError();
+            }
+          }
+        });
+      } else {
+        // Звичайний прогресивний файл (mp3, aac, m4a...) або Safari з нативним HLS
+        audioEl.src = src;
+        audioEl.load();
+
+        audioEl.oncanplay = () => {
+          setStatus('Обидва потоки готові. Натисни Play', 'success');
+        };
+
+        audioEl.onerror = () => {
+          setStatus('Помилка завантаження аудіо (можливо CORS або формат)', 'error');
+        };
+      }
     }
 
+    // ========== Синхронізація ==========
     function startSync() {
       if (syncInterval) return;
 
-      // Періодична перевірка дрейфу (кожні 250 мс)
       syncInterval = setInterval(() => {
-        if (!audioEl.src || audioEl.paused || player.paused()) return;
+        if (!audioEl.src && !hlsAudio) return;
+        if (audioEl.paused || player.paused()) return;
 
         const drift = Math.abs(player.currentTime() - audioEl.currentTime);
-        if (drift > 0.25) { // якщо розійшлися більше ніж на 250 мс
+        if (drift > 0.3) { // 300 мс
           isSyncing = true;
-          audioEl.currentTime = player.currentTime();
+          try {
+            audioEl.currentTime = player.currentTime();
+          } catch (e) {}
           isSyncing = false;
         }
-      }, 250);
+      }, 300);
     }
 
     function stopSync() {
@@ -308,54 +363,56 @@
       }
     }
 
-    function stopPlayback() {
+    function stopPlayback(fullClean = false) {
       player.pause();
       audioEl.pause();
       stopSync();
-      player.currentTime(0);
-      audioEl.currentTime = 0;
+
+      if (fullClean) {
+        player.currentTime(0);
+        audioEl.currentTime = 0;
+
+        if (hlsAudio) {
+          hlsAudio.destroy();
+          hlsAudio = null;
+        }
+        audioEl.removeAttribute('src');
+        audioEl.load();
+      }
+
       setStatus('');
     }
 
-    // ===== Синхронізація подій =====
-
-    // Play
+    // Події Video.js
     player.on('play', () => {
-      if (audioEl.src) {
-        audioEl.play().catch(e => console.warn('Audio play error:', e));
+      if (audioEl.src || hlsAudio) {
+        audioEl.play().catch(e => {
+          console.warn('Audio play blocked:', e);
+          setStatus('Браузер заблокував автозапуск аудіо. Натисни Play ще раз.', 'error');
+        });
         startSync();
       }
     });
 
-    // Pause
     player.on('pause', () => {
       audioEl.pause();
       stopSync();
     });
 
-    // Seeking / Seeked
     player.on('seeking', () => {
-      if (audioEl.src && !isSyncing) {
+      if ((audioEl.src || hlsAudio) && !isSyncing) {
         isSyncing = true;
-        audioEl.currentTime = player.currentTime();
+        try {
+          audioEl.currentTime = player.currentTime();
+        } catch (e) {}
         isSyncing = false;
       }
     });
 
-    // Rate change
     player.on('ratechange', () => {
-      if (audioEl.src) {
-        audioEl.playbackRate = player.playbackRate();
-      }
+      audioEl.playbackRate = player.playbackRate();
     });
 
-    // Volume (опціонально — можна синхронізувати гучність)
-    player.on('volumechange', () => {
-      // audioEl.volume = player.volume();
-      // audioEl.muted = player.muted();
-    });
-
-    // Коли відео закінчилось
     player.on('ended', () => {
       audioEl.pause();
       stopSync();
@@ -363,14 +420,13 @@
 
     // Кнопки
     loadBtn.addEventListener('click', loadSources);
-    stopBtn.addEventListener('click', stopPlayback);
+    stopBtn.addEventListener('click', () => stopPlayback(true));
 
-    // Enter у полях
-    videoUrlInput.addEventListener('keydown', e => {
-      if (e.key === 'Enter') loadSources();
-    });
-    audioUrlInput.addEventListener('keydown', e => {
-      if (e.key === 'Enter') loadSources();
+    // Enter
+    [videoUrl, audioUrl].forEach(el => {
+      el.addEventListener('keydown', e => {
+        if (e.key === 'Enter') loadSources();
+      });
     });
   </script>
 </body>
