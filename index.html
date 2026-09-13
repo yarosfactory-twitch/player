@@ -6,9 +6,138 @@
 <style>
   html, body { margin: 0; padding: 0; overflow: hidden; background: transparent; }
   iframe, video { width: 100vw; height: 100vh; border: 0; display: block; object-fit: contain; background: transparent; }
+
+  /* SoundCloud audio iframe is muted-of-view — it plays the sound, the card below shows it */
+  #sc-audio-frame { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+
+  #sc-card {
+    position: absolute;
+    left: 20px; bottom: 20px;
+    width: 380px;
+    height: 200px;
+    border-radius: 22px;
+    overflow: hidden;
+    font-family: system-ui, sans-serif;
+    background: rgba(22, 18, 28, 0.38);
+    backdrop-filter: blur(18px) saturate(150%);
+    -webkit-backdrop-filter: blur(18px) saturate(150%);
+    border: 1px solid rgba(255,255,255,0.14);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.08);
+  }
+
+  #sc-avatar {
+    position: absolute;
+    top: 16px; left: 16px;
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    background: #3a2d55 center/cover no-repeat;
+    border: 2px solid rgba(255,255,255,0.35);
+  }
+
+  #sc-playpause {
+    position: absolute;
+    top: 16px; right: 16px;
+    width: 34px; height: 34px;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.35);
+    backdrop-filter: blur(2px);
+    display: flex; align-items: center; justify-content: center;
+  }
+  #sc-playpause svg { width: 14px; height: 14px; fill: #fff; }
+
+  #sc-eq {
+    position: absolute;
+    top: 22px; left: 68px;
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 13px;
+  }
+  #sc-eq span {
+    width: 3px;
+    background: rgba(255,255,255,0.85);
+    border-radius: 1px;
+    animation: sc-eq-bounce 0.9s ease-in-out infinite;
+  }
+  #sc-eq span:nth-child(1) { height: 40%; animation-delay: 0s; }
+  #sc-eq span:nth-child(2) { height: 100%; animation-delay: 0.15s; }
+  #sc-eq span:nth-child(3) { height: 65%; animation-delay: 0.3s; }
+  @keyframes sc-eq-bounce {
+    0%, 100% { transform: scaleY(0.4); }
+    50% { transform: scaleY(1); }
+  }
+
+  #sc-text-scrim {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 110px;
+    background: linear-gradient(180deg, rgba(20,12,30,0) 0%, rgba(20,12,30,0.55) 55%, rgba(20,12,30,0.75) 100%);
+  }
+  #sc-info {
+    position: absolute;
+    left: 18px; right: 18px; bottom: 34px;
+  }
+  #sc-title {
+    color: #fff;
+    font-size: 19px;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #sc-artist {
+    color: rgba(255,255,255,0.75);
+    font-size: 13.5px;
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #sc-requester {
+    color: rgba(255,255,255,0.5);
+    font-size: 11px;
+    margin-top: 3px;
+  }
+
+  #sc-progress-row {
+    position: absolute;
+    left: 18px; right: 18px; bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  #sc-time-elapsed, #sc-time-total { color: rgba(255,255,255,0.65); font-size: 10.5px; }
+  #sc-progress-track { flex: 1; height: 3px; background: rgba(255,255,255,0.25); border-radius: 2px; overflow: hidden; }
+  #sc-progress-fill { height: 100%; width: 0%; background: #fff; }
+
+  @media (prefers-reduced-motion: reduce) {
+    #sc-eq span { animation: none; height: 70% !important; }
+  }
+  #sc-progress-fill { height: 100%; width: 0%; background: #5b8cff; }
+
+  @media (prefers-reduced-motion: reduce) {
+    #sc-eq span { animation: none; height: 70% !important; }
+  }
 </style>
 </head>
 <body>
+<div id="media-root"></div>
+<div id="sc-card" style="display:none;">
+  <div id="sc-avatar"></div>
+  <div id="sc-eq"><span></span><span></span><span></span></div>
+  <div id="sc-playpause"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>
+  <div id="sc-text-scrim"></div>
+  <div id="sc-info">
+    <div id="sc-title">—</div>
+    <div id="sc-artist"></div>
+    <div id="sc-requester"></div>
+  </div>
+  <div id="sc-progress-row">
+    <span id="sc-time-elapsed">0:00</span>
+    <div id="sc-progress-track"><div id="sc-progress-fill"></div></div>
+    <span id="sc-time-total">0:00</span>
+  </div>
+</div>
 <!--
   Підключення: player.html?sb=PORT  (за замовчуванням 8080 — порт WebSocket Server у Streamer.bot)
 
@@ -49,15 +178,16 @@
   let currentTrack = null;    // { source, videoStreamUrl, audioStreamUrl } | { source, trackUrl } | { source, videoId } (manual)
   let paused = false;
   let lastScPosition = 0; // last known SoundCloud position (seconds), used to resume at the right spot
+  const mediaRoot = document.getElementById('media-root'); // holds video/audio/iframe; #sc-card lives outside this and is never wiped
 
   function mountIframe(src, allow) {
-    document.body.innerHTML = '';
+    mediaRoot.innerHTML = '';
     const iframe = document.createElement('iframe');
     iframe.allow = allow || 'autoplay; encrypted-media';
     iframe.referrerPolicy = 'strict-origin-when-cross-origin';
     iframe.allowFullscreen = true;
     iframe.src = src;
-    document.body.appendChild(iframe);
+    mediaRoot.appendChild(iframe);
     return iframe;
   }
 
@@ -71,7 +201,7 @@
     currentTrack = { source: 'youtube-direct', videoStreamUrl: videoUrl, audioStreamUrl: audioUrl };
     paused = false;
     clearInterval(syncInterval);
-    document.body.innerHTML = ''; // safe — preload elements are never appended to the DOM
+    mediaRoot.innerHTML = ''; // safe — preload elements are never appended here
 
     const usingPreload = !!(preloadUrls && preloadUrls.videoStreamUrl === videoUrl &&
       preloadUrls.audioStreamUrl === audioUrl && preloadVideoEl && preloadAudioEl);
@@ -93,8 +223,8 @@
     audioEl.addEventListener('ended', handleDualStreamEnded);
     audioEl.addEventListener('error', handleStreamLoadError);
     videoEl.addEventListener('error', handleStreamLoadError);
-    document.body.appendChild(videoEl);
-    document.body.appendChild(audioEl);
+    mediaRoot.appendChild(videoEl);
+    mediaRoot.appendChild(audioEl);
 
     preloadVideoEl = null;
     preloadAudioEl = null;
@@ -192,18 +322,40 @@
   // fully removes the iframe (guaranteed silence) and resume recreates a fresh one —
   // but seekTo IS reliable here, so we use it once, right as the new iframe becomes
   // ready, to jump back to the position we were at before pausing.
-  function playSoundcloud(trackUrl, resumeAt) {
+  function playSoundcloud(trackUrl, resumeAt, meta) {
     ytPlayer = null;
     videoEl = null;
-    currentTrack = { source: 'soundcloud', trackUrl: trackUrl };
+    currentTrack = { source: 'soundcloud', trackUrl: trackUrl, meta: meta || currentTrack?.meta };
     paused = false;
     lastScPosition = resumeAt || 0;
-    const iframe = mountIframe(
-      'https://w.soundcloud.com/player/?url=' + encodeURIComponent(trackUrl) +
-      '&auto_play=true&hide_related=true&show_comments=false&show_user=false',
-      'autoplay'
-    );
+
+    const iframe = document.createElement('iframe');
+    iframe.id = 'sc-audio-frame';
+    iframe.allow = 'autoplay';
+    iframe.src = 'https://w.soundcloud.com/player/?url=' + encodeURIComponent(trackUrl) +
+      '&auto_play=true&hide_related=true&show_comments=false&show_user=false';
+    mediaRoot.appendChild(iframe);
     bindScWidget(iframe, resumeAt);
+    renderScCard(currentTrack.meta);
+    setScCardPaused(false);
+  }
+
+  function formatMmSs(sec) {
+    sec = Math.max(0, Math.floor(sec || 0));
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return m + ':' + String(s).padStart(2, '0');
+  }
+
+  function renderScCard(meta) {
+    const card = document.getElementById('sc-card');
+    if (!meta) { card.style.display = 'none'; return; }
+    document.getElementById('sc-title').textContent = meta.title || 'Без назви';
+    document.getElementById('sc-artist').textContent = meta.artist || '';
+    document.getElementById('sc-requester').textContent = meta.requestedBy ? ('замовив: ' + meta.requestedBy) : '';
+    const avatar = document.getElementById('sc-avatar');
+    avatar.style.backgroundImage = meta.requesterAvatar ? `url('${meta.requesterAvatar}')` : 'none';
+    card.style.display = 'block';
   }
 
   function bindScWidget(iframe, resumeAt) {
@@ -222,6 +374,12 @@
       scWidget.getPosition((posMs) => {
         scWidget.getDuration((durMs) => {
           lastScPosition = posMs / 1000;
+          const fill = document.getElementById('sc-progress-fill');
+          if (fill && durMs > 0) fill.style.width = Math.min(100, (posMs / durMs) * 100) + '%';
+          const elapsedEl = document.getElementById('sc-time-elapsed');
+          const totalEl = document.getElementById('sc-time-total');
+          if (elapsedEl) elapsedEl.textContent = formatMmSs(posMs / 1000);
+          if (totalEl) totalEl.textContent = formatMmSs(durMs / 1000);
           cb(posMs / 1000, durMs / 1000);
         });
       });
@@ -234,7 +392,7 @@
     if (pendingYt) { createYtPlayer(pendingYt); pendingYt = null; }
   };
   function createYtPlayer(videoId) {
-    document.body.innerHTML = '<div id="yt-target" style="width:100vw;height:100vh;"></div>';
+    mediaRoot.innerHTML = '<div id="yt-target" style="width:100vw;height:100vh;"></div>';
     videoEl = null;
     ytPlayer = new YT.Player('yt-target', {
       width: '100%', height: '100%', videoId: videoId,
@@ -263,18 +421,20 @@
       if (lastProgressTick) lastProgressTick();
       return;
     }
-    document.body.innerHTML = '';
+    mediaRoot.innerHTML = '';
     ytPlayer = null;
     scWidget = null;
+    setScCardPaused(true);
   }
   function resumePlayback() {
     if (!currentTrack || !paused) return;
     paused = false;
+    setScCardPaused(false);
     if (currentTrack.source === 'youtube-direct') {
       if (videoEl && audioEl) { Promise.all([videoEl.play(), audioEl.play()]).catch(() => {}); }
       else playDualStream(currentTrack.videoStreamUrl, currentTrack.audioStreamUrl);
     } else if (currentTrack.source === 'soundcloud') {
-      playSoundcloud(currentTrack.trackUrl, lastScPosition);
+      playSoundcloud(currentTrack.trackUrl, lastScPosition, currentTrack.meta);
     } else if (currentTrack.source === 'youtube-manual') {
       createYtPlayer(currentTrack.videoId);
     }
@@ -282,7 +442,7 @@
   function stopPlayback() {
     clearInterval(syncInterval);
     clearInterval(progressInterval);
-    document.body.innerHTML = '';
+    mediaRoot.innerHTML = '';
     ytPlayer = null;
     scWidget = null;
     videoEl = null;
@@ -290,6 +450,18 @@
     currentTrack = null;
     paused = false;
     lastScPosition = 0;
+    renderScCard(null);
+  }
+
+  const SC_PLAY_ICON = '<path d="M8 5v14l11-7z"/>';
+  const SC_PAUSE_ICON = '<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>';
+  function setScCardPaused(isPaused) {
+    const icon = document.getElementById('sc-playpause');
+    const eq = document.getElementById('sc-eq');
+    if (!icon || !eq) return;
+    icon.querySelector('svg').innerHTML = isPaused ? SC_PLAY_ICON : SC_PAUSE_ICON;
+    eq.style.animationPlayState = isPaused ? 'paused' : 'running';
+    eq.querySelectorAll('span').forEach((s) => { s.style.animationPlayState = isPaused ? 'paused' : 'running'; });
   }
 
   // ---------- Streamer.bot WebSocket ----------
@@ -323,7 +495,11 @@
             currentTrack.videoStreamUrl === data.videoStreamUrl && currentTrack.audioStreamUrl === data.audioStreamUrl && !paused;
           if (!alreadyPlayingThis) playDualStream(data.videoStreamUrl, data.audioStreamUrl);
         }
-        else if (data.event === 'play' && data.source === 'soundcloud') playSoundcloud(data.trackUrl);
+        else if (data.event === 'play' && data.source === 'soundcloud') {
+          playSoundcloud(data.trackUrl, 0, {
+            title: data.title, artist: data.artist, requestedBy: data.requestedBy, requesterAvatar: data.requesterAvatar
+          });
+        }
         else if (data.event === 'preload') preloadDualStream(data.videoStreamUrl, data.audioStreamUrl);
         else if (data.event === 'pause') pausePlayback();
         else if (data.event === 'resume') resumePlayback();
