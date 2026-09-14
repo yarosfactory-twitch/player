@@ -500,6 +500,24 @@
     return m + ':' + String(s).padStart(2, '0');
   }
 
+  // Validates that a value is a genuine absolute http(s) URL before it's allowed
+  // anywhere near a CSS url(...) — meta.artwork/meta.requesterAvatar come from
+  // external oEmbed/Twitch API responses, not directly from a viewer, but
+  // building `url('${value}')` via string interpolation is exactly the pattern
+  // that lets a stray quote in that value break out of the intended CSS value.
+  // URL.href both validates the scheme and returns a fully percent-encoded form
+  // that can't contain a literal quote character.
+  function safeCssUrl(value) {
+    if (!value) return null;
+    try {
+      const u = new URL(value);
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+      return u.href;
+    } catch (e) {
+      return null;
+    }
+  }
+
   function renderScCard(meta) {
     const card = document.getElementById('sc-card');
     if (!meta) { card.style.display = 'none'; return; }
@@ -507,9 +525,11 @@
     document.getElementById('sc-artist').textContent = meta.artist || '';
     document.getElementById('sc-requester').textContent = meta.requestedBy ? ('замовив: ' + meta.requestedBy) : '';
     const avatar = document.getElementById('sc-avatar');
-    avatar.style.backgroundImage = meta.requesterAvatar ? `url('${meta.requesterAvatar}')` : 'none';
+    const safeAvatar = safeCssUrl(meta.requesterAvatar);
+    avatar.style.backgroundImage = safeAvatar ? `url("${safeAvatar}")` : 'none';
     const bg = document.getElementById('sc-card-bg');
-    bg.style.backgroundImage = meta.artwork ? `url('${meta.artwork}')` : 'none';
+    const safeArtwork = safeCssUrl(meta.artwork);
+    bg.style.backgroundImage = safeArtwork ? `url("${safeArtwork}")` : 'none';
     card.style.display = 'block';
   }
 
