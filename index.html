@@ -271,7 +271,15 @@
 
     startProgressReporting((cb) => {
       if (myGeneration !== playGeneration) return;
-      cb(myAudioEl.currentTime, myAudioEl.duration);
+      const pos = myAudioEl.currentTime;
+      const dur = myAudioEl.duration;
+      const fill = document.getElementById('sc-progress-fill');
+      if (fill && dur > 0) fill.style.width = Math.min(100, (pos / dur) * 100) + '%';
+      const elapsedEl = document.getElementById('sc-time-elapsed');
+      const totalEl = document.getElementById('sc-time-total');
+      if (elapsedEl) elapsedEl.textContent = formatMmSs(pos);
+      if (totalEl) totalEl.textContent = formatMmSs(dur);
+      cb(pos, dur);
     });
     renderScCard(meta);
     setScCardPaused(false);
