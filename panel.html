@@ -54,11 +54,40 @@
   #add-form input[name="requestedBy"] { width: 110px; }
 
   #queue { display: flex; flex-direction: column; gap: 6px; }
-  .queue-item { background: #1f2226; border: 1px solid #2b2f35; border-radius: 6px; padding: 8px 10px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .queue-item {
+    position: relative;
+    background: #1f2226; border: 1px solid #2b2f35; border-radius: 6px;
+    padding: 8px 10px; display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  }
   .queue-item .info { min-width: 0; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .queue-item .who { color: #9aa0a8; }
-  .queue-item .controls { display: flex; gap: 4px; flex-shrink: 0; }
   #empty { color: #6b7178; font-size: 12.5px; }
+
+  .kebab-btn {
+    flex-shrink: 0; width: 26px; height: 26px;
+    display: flex; align-items: center; justify-content: center;
+    background: transparent; border: 1px solid transparent; border-radius: 5px;
+    color: #9aa0a8; font-size: 16px; line-height: 1; padding: 0;
+  }
+  .kebab-btn:hover { background: #2b2f35; color: #e6e6e6; }
+
+  .item-menu {
+    display: none; flex-direction: column;
+    position: absolute; top: calc(100% + 4px); right: 0; z-index: 20;
+    min-width: 190px;
+    background: #23262b; border: 1px solid #2f3339; border-radius: 8px;
+    padding: 4px; box-shadow: 0 6px 18px rgba(0,0,0,0.45);
+  }
+  .item-menu.open { display: flex; }
+  .item-menu button {
+    all: unset; box-sizing: border-box;
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 9px; border-radius: 5px; cursor: pointer;
+    font-size: 12.5px; color: #e6e6e6;
+  }
+  .item-menu button:hover { background: #2b2f35; }
+  .item-menu button.danger { color: #e07d7d; }
+  .item-menu .menu-icon { width: 14px; flex-shrink: 0; text-align: center; opacity: 0.9; }
 
   #bans { display: flex; flex-direction: column; gap: 10px; }
   .ban-group { font-size: 12.5px; }
@@ -104,7 +133,7 @@
 <div id="bans">
   <div class="ban-group"><div class="label">Заблоковані глядачі</div><div id="ban-users"></div></div>
   <div class="ban-group"><div class="label">Заблоковані виконавці</div><div id="ban-artists"></div></div>
-  <div class="ban-group"><div class="label">Заблоковані пісні</div><div id="ban-songs"></div></div>
+  <div class="ban-group"><div class="label">Заблоковані посилання</div><div id="ban-songs"></div></div>
 </div>
 
 <script>
@@ -151,6 +180,12 @@
 
   function trackLabel(t) { return t.title || (t.source === 'youtube' ? t.videoId : t.trackUrl); }
 
+  // Identifier used for remove / priority-play / ban-link actions.
+  // Assumes the track object carries the original submitted link as `url`
+  // (falls back to `trackUrl`). Adjust here if your Streamer.bot side uses
+  // a different field name.
+  function trackUrl(t) { return t.url || t.trackUrl || ''; }
+
   function formatTime(sec) {
     sec = Math.max(0, Math.floor(sec || 0));
     const m = Math.floor(sec / 60);
@@ -178,15 +213,26 @@
     if (state.queue.length === 0) {
       queueEl.innerHTML = '<div id="empty">Черга порожня.</div>';
     } else {
-      state.queue.forEach((t) => {
+      state.queue.forEach((t, idx) => {
+        const url = trackUrl(t);
         const row = document.createElement('div');
         row.className = 'queue-item';
         row.innerHTML = `
           <div class="info">${escapeHtml(trackLabel(t))}${t.artist ? ' — ' + escapeHtml(t.artist) : ''} <span class="who">${t.requestedBy ? '· ' + escapeHtml(t.requestedBy) : ''}</span></div>
-          <div class="controls">
-            <button data-action="ban-song" data-value="${escapeHtml(t.title || '')}">Бан пісні</button>
-            <button data-action="ban-artist" data-value="${escapeHtml(t.artist || '')}">Бан виконавця</button>
-            <button data-action="ban-user" data-value="${escapeHtml(t.requestedBy || '')}">Бан глядача</button>
+          <button class="kebab-btn" type="button" aria-label="Дії">⋮</button>
+          <div class="item-menu" data-idx="${idx}">
+            <button type="button" data-action="play-now" data-url="${escapeHtml(url)}">
+              <span class="menu-icon">▶</span> Відтворити позачергово
+            </button>
+            <button type="button" class="danger" data-action="remove" data-url="${escapeHtml(url)}">
+              <span class="menu-icon">✕</span> Вилучити з черги
+            </button>
+            <button type="button" data-action="ban-link" data-url="${escapeHtml(url)}">
+              <span class="menu-icon">🚫</span> Забанити посилання
+            </button>
+            <button type="button" data-action="ban-user" data-value="${escapeHtml(t.requestedBy || '')}">
+              <span class="menu-icon">🚫</span> Забанити замовника
+            </button>
           </div>`;
         queueEl.appendChild(row);
       });
@@ -194,7 +240,7 @@
 
     renderBanGroup('ban-users', state.bans.users, 'user');
     renderBanGroup('ban-artists', state.bans.artists, 'artist');
-    renderBanGroup('ban-songs', state.bans.songs, 'song');
+    renderBanGroup('ban-songs', state.bans.songs, 'link');
   }
 
   function renderProgress(position, duration) {
@@ -216,6 +262,10 @@
 
   function escapeHtml(s) { return String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
+  function closeAllMenus() {
+    document.querySelectorAll('.item-menu.open').forEach((m) => m.classList.remove('open'));
+  }
+
   document.getElementById('playpause').addEventListener('click', () => {
     doAction({ cmd: lastPaused ? 'resume' : 'pause' });
   });
@@ -235,15 +285,38 @@
   });
 
   document.body.addEventListener('click', (e) => {
-    const btn = e.target.closest('button[data-action]');
-    if (!btn) return;
-    const action = btn.dataset.action;
-    if (action === 'unban') doAction({ cmd: 'unban', banType: btn.dataset.type, value: btn.dataset.value });
-    if (action.startsWith('ban-')) {
-      const type = action.replace('ban-', '');
-      const value = prompt('Забанити (' + type + '):', btn.dataset.value || '');
-      if (value) doAction({ cmd: 'ban', banType: type, value });
+    // toggle a queue-item's context menu
+    const kebab = e.target.closest('.kebab-btn');
+    if (kebab) {
+      e.stopPropagation();
+      const menu = kebab.parentElement.querySelector('.item-menu');
+      const wasOpen = menu.classList.contains('open');
+      closeAllMenus();
+      if (!wasOpen) menu.classList.add('open');
+      return;
     }
+
+    // an action picked inside a context menu
+    const menuBtn = e.target.closest('.item-menu button[data-action]');
+    if (menuBtn) {
+      const action = menuBtn.dataset.action;
+      if (action === 'play-now') doAction({ cmd: 'playNow', url: menuBtn.dataset.url });
+      else if (action === 'remove') doAction({ cmd: 'remove', url: menuBtn.dataset.url });
+      else if (action === 'ban-link') doAction({ cmd: 'ban', banType: 'link', value: menuBtn.dataset.url });
+      else if (action === 'ban-user') doAction({ cmd: 'ban', banType: 'user', value: menuBtn.dataset.value });
+      closeAllMenus();
+      return;
+    }
+
+    // unban chip in the Бан-листи panel
+    const unbanBtn = e.target.closest('button[data-action="unban"]');
+    if (unbanBtn) {
+      doAction({ cmd: 'unban', banType: unbanBtn.dataset.type, value: unbanBtn.dataset.value });
+      return;
+    }
+
+    // click anywhere else closes any open menu
+    closeAllMenus();
   });
 
   document.getElementById('add-form').addEventListener('submit', (e) => {
