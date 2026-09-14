@@ -204,6 +204,23 @@
     return iframe;
   }
 
+  let preloadMuxedEl = null;
+  let preloadMuxedUrl = null;
+
+  // Called ahead of time (while the current track is still playing) once the
+  // backend has the next track's file ready — quietly buffers it in a hidden
+  // <video> so the actual switch later is instant instead of starting a fresh
+  // connect-and-buffer cycle right when playback needs to switch.
+  function preloadMuxedStream(streamUrl) {
+    if (preloadMuxedUrl === streamUrl && preloadMuxedEl) return; // already preloading this one
+    preloadMuxedUrl = streamUrl;
+    preloadMuxedEl = document.createElement('video');
+    preloadMuxedEl.src = streamUrl;
+    preloadMuxedEl.preload = 'auto';
+    preloadMuxedEl.muted = true; // not attached to the DOM, but keep it inert just in case
+    preloadMuxedEl.referrerPolicy = 'no-referrer';
+  }
+
   // Plain YouTube tracks now arrive as ONE already-muxed local stream (ffmpeg
   // combined the separate video/audio on the backend) — just a normal single
   // <video> element, no more juggling two elements' sync at all.
@@ -217,14 +234,24 @@
     renderScCard(null); // no card for this path — it's a real video
     mediaRoot.innerHTML = '';
 
-    videoEl = document.createElement('video');
-    videoEl.src = streamUrl;
+    const usingPreload = preloadMuxedUrl === streamUrl && preloadMuxedEl;
+    if (usingPreload) {
+      videoEl = preloadMuxedEl;
+      videoEl.muted = false;
+    } else {
+      videoEl = document.createElement('video');
+      videoEl.src = streamUrl;
+      videoEl.referrerPolicy = 'no-referrer';
+    }
+    preloadMuxedEl = null;
+    preloadMuxedUrl = null;
+
     videoEl.autoplay = true;
     videoEl.controls = false;
-    videoEl.referrerPolicy = 'no-referrer';
     videoEl.addEventListener('ended', sendEnded);
     videoEl.addEventListener('error', handleStreamLoadError);
     mediaRoot.appendChild(videoEl);
+    if (usingPreload) videoEl.play().catch(() => {});
 
     startProgressReporting((cb) => cb(videoEl.currentTime, videoEl.duration));
   }
@@ -667,6 +694,7 @@
         else if (data.event === 'play' && data.source === 'tune2live-fallback') {
           playTune2LiveWidget(data.widgetUrl);
         }
+        else if (data.event === 'preload' && data.source === 'youtube-muxed') preloadMuxedStream(data.streamUrl);
         else if (data.event === 'preload') preloadDualStream(data.videoStreamUrl, data.audioStreamUrl);
         else if (data.event === 'pause') pausePlayback();
         else if (data.event === 'resume') resumePlayback();
