@@ -181,10 +181,9 @@
   function trackLabel(t) { return t.title || (t.source === 'youtube' ? t.videoId : t.trackUrl); }
 
   // Identifier used for remove / priority-play / ban-link actions.
-  // Assumes the track object carries the original submitted link as `url`
-  // (falls back to `trackUrl`). Adjust here if your Streamer.bot side uses
-  // a different field name.
-  function trackUrl(t) { return t.url || t.trackUrl || ''; }
+  // Matches the Music - Handle track shape: YouTube tracks carry `youtubeUrl`,
+  // SoundCloud tracks carry `trackUrl`.
+  function trackUrl(t) { return t.youtubeUrl || t.trackUrl || ''; }
 
   function formatTime(sec) {
     sec = Math.max(0, Math.floor(sec || 0));
@@ -240,7 +239,7 @@
 
     renderBanGroup('ban-users', state.bans.users, 'user');
     renderBanGroup('ban-artists', state.bans.artists, 'artist');
-    renderBanGroup('ban-songs', state.bans.songs, 'link');
+    renderBanGroup('ban-songs', state.bans.links, 'link');
   }
 
   function renderProgress(position, duration) {
