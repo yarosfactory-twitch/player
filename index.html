@@ -661,6 +661,9 @@
         try { msg = JSON.parse(ev.data); } catch (e) { return; }
         if (!msg.event || msg.event.source !== 'General' || msg.event.type !== 'Custom') return;
         const data = msg.data || {};
+        if (data.event === 'play' && data.title) {
+          console.log('DEBUG received title:', data.title, 'raw event:', ev.data.substring(0, 400));
+        }
         if (data.event === 'play' && data.source === 'youtube-direct' && data.cardMode) {
           const alreadyPlayingThis = currentTrack && currentTrack.source === 'youtube-audio-card' &&
             currentTrack.audioStreamUrl === data.audioStreamUrl && !paused;
