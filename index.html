@@ -407,10 +407,10 @@
   }
 
   // If a resolved stream fails to actually load (some heavily-protected uploads do
-  // this even after yt-dlp successfully resolved a URL), tell Streamer.bot so it can
-  // fall back to Tune2Live — same as an outright resolution failure.
+  // this even after yt-dlp successfully resolved a URL), tell Streamer.bot so it
+  // can skip to the next track — same as an outright resolution failure.
   function handleStreamLoadError() {
-    console.error('Playback failed to load, falling back to Tune2Live.', currentTrack);
+    console.error('Playback failed to load, skipping to next track.', currentTrack);
     doAction('Music - Handle', { cmd: 'directPlaybackFailed' });
   }
 
@@ -421,7 +421,7 @@
   // a moment to actually start accepting connections right after it logs that
   // it's up, and the browser can race that by a few dozen milliseconds), not a
   // genuinely unplayable video — so retry the same local URL a few times before
-  // giving up and falling back to Tune2Live like the other playback types do.
+  // giving up and reporting it as failed like the other playback types do.
   function handleMuxedLoadError() {
     const failedGeneration = playGeneration;
     const el = videoEl;
@@ -611,24 +611,6 @@
     createYtPlayer(videoId);
   }
 
-  // Called when Streamer.bot has fallen back to Tune2Live for a track (either it
-  // couldn't resolve a direct stream at all, or a resolved one failed to actually
-  // load). Shows Tune2Live's own widget right here, so there's still just one
-  // browser source in total rather than needing a separate always-present one.
-  function playTune2LiveWidget(widgetUrl) {
-    stopOldMedia();
-    currentTrack = { source: 'tune2live-fallback', widgetUrl: widgetUrl };
-    paused = false;
-    clearInterval(progressInterval);
-    ++playGeneration;
-    renderScCard(null); // no now-playing card for this path — Tune2Live shows its own UI
-    mediaRoot.innerHTML = '';
-    const iframe = document.createElement('iframe');
-    iframe.allow = 'autoplay';
-    iframe.src = widgetUrl;
-    mediaRoot.appendChild(iframe);
-  }
-
   // ---------- pause / resume / stop ----------
   // youtube-direct uses real <video>/<audio> elements in our own document, so
   // pause()/play() work directly and reliably (no cross-origin postMessage involved).
@@ -664,8 +646,6 @@
       playSoundcloud(currentTrack.trackUrl, lastScPosition, currentTrack.meta);
     } else if (currentTrack.source === 'youtube-manual') {
       createYtPlayer(currentTrack.videoId);
-    } else if (currentTrack.source === 'tune2live-fallback') {
-      playTune2LiveWidget(currentTrack.widgetUrl);
     }
   }
   function stopPlayback() {
@@ -745,9 +725,6 @@
           playSoundcloud(data.trackUrl, 0, {
             title: data.title, artist: data.artist, requestedBy: data.requestedBy, requesterAvatar: data.requesterAvatar
           });
-        }
-        else if (data.event === 'play' && data.source === 'tune2live-fallback') {
-          playTune2LiveWidget(data.widgetUrl);
         }
         else if (data.event === 'preload' && data.source === 'youtube-muxed') preloadMuxedStream(data.streamUrl);
         else if (data.event === 'preload') preloadDualStream(data.videoStreamUrl, data.audioStreamUrl);
