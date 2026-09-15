@@ -82,6 +82,31 @@
   .badge-icon { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; }
   #empty { color: #6b7178; font-size: 12.5px; }
 
+  #bg-playlists { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+  #bg-empty { color: #6b7178; font-size: 12.5px; }
+  .bg-playlist-item {
+    background: #1f2226; border: 1px solid #2b2f35; border-radius: 6px;
+    padding: 8px 10px; display: flex; flex-direction: column; gap: 5px;
+  }
+  .bg-playlist-item.active { border-color: #5b8cff; }
+  .bg-playlist-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+  .bg-playlist-text { min-width: 0; flex: 1; }
+  .bg-playlist-title { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bg-playlist-meta { font-size: 11px; color: #9aa0a8; margin-top: 2px; }
+  .bg-playlist-now { font-size: 11px; color: #5fbf6f; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bg-playlist-controls { display: flex; gap: 4px; flex-shrink: 0; }
+  .bg-ctrl-btn {
+    width: 26px; height: 26px; flex-shrink: 0; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: #2b2f35; border: 1px solid #383d44; border-radius: 5px;
+    color: #9aa0a8; cursor: pointer; font-size: 12.5px;
+  }
+  .bg-ctrl-btn:hover { background: #383d44; }
+  .bg-ctrl-btn.on { background: #24344f; border-color: #3d5a8a; color: #7fa8ff; }
+  .bg-ctrl-btn.danger:hover { background: #3a2626; border-color: #5a3535; color: #e07d7d; }
+  #bg-playlist-form { display: flex; gap: 6px; margin-bottom: 12px; }
+  #bg-playlist-form input { background: #1f2226; border: 1px solid #2b2f35; color: #e6e6e6; border-radius: 4px; padding: 6px 8px; font-size: 12px; flex: 1; }
+
   .kebab-btn {
     flex-shrink: 0; width: 26px; height: 26px;
     display: flex; align-items: center; justify-content: center;
@@ -167,6 +192,13 @@
 <h2>Черга (<span id="queue-count">0</span>)</h2>
 <div id="queue"><div id="empty">Черга порожня.</div></div>
 
+<h2>Фонові плейлисти</h2>
+<div id="bg-playlists"><div id="bg-empty">Жодного плейлиста не додано.</div></div>
+<form id="bg-playlist-form">
+  <input type="text" name="url" placeholder="Посилання на YouTube-плейлист">
+  <button type="submit">+</button>
+</form>
+
 <h2>Бан-листи</h2>
 <div id="bans">
   <div class="ban-group"><div class="label">Заблоковані глядачі</div><div id="ban-users"></div></div>
@@ -243,7 +275,9 @@
     lastPaused = !!state.paused;
 
     document.getElementById('cur-title').textContent = cur ? trackLabel(cur) : 'Нічого не грає';
-    document.getElementById('cur-sub').textContent = cur ? [cur.artist, cur.requestedBy ? ('замовив: ' + cur.requestedBy) : ''].filter(Boolean).join(' · ') : '';
+    document.getElementById('cur-sub').textContent = cur
+      ? [cur.artist, cur.backgroundPlaylistTitle ? ('🔁 ' + cur.backgroundPlaylistTitle) : (cur.requestedBy ? ('замовив: ' + cur.requestedBy) : '')].filter(Boolean).join(' · ')
+      : '';
 
     const iconImg = document.getElementById('platform-icon');
     const iconKey = cur ? (cur.originSource || cur.source) : null;
@@ -295,6 +329,52 @@
     renderBanGroup('ban-users', state.bans.users, 'user');
     renderBanGroup('ban-artists', state.bans.artists, 'artist');
     renderBanGroup('ban-songs', state.bans.links, 'link');
+    renderBackgroundPlaylists(state);
+  }
+
+  function formatDuration(seconds) {
+    seconds = Math.round(Number(seconds) || 0);
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    const mm = String(m).padStart(h ? 2 : 1, '0');
+    const ss = String(s).padStart(2, '0');
+    return h ? `${h}:${String(m).padStart(2,'0')}:${ss}` : `${mm}:${ss}`;
+  }
+
+  function renderBackgroundPlaylists(state) {
+    const container = document.getElementById('bg-playlists');
+    const playlists = state.backgroundPlaylists || [];
+    const activeId = state.activeBackgroundPlaylistId || 0;
+    if (playlists.length === 0) {
+      container.innerHTML = '<div id="bg-empty">Жодного плейлиста не додано.</div>';
+      return;
+    }
+    container.innerHTML = '';
+    playlists.forEach((p) => {
+      const isActive = p.id === activeId;
+      const row = document.createElement('div');
+      row.className = 'bg-playlist-item' + (isActive ? ' active' : '');
+      const trackCount = (p.tracks || []).length;
+      const nowPlaying = (isActive && state.current && state.current.backgroundPlaylistId === p.id)
+        ? `▶ ${escapeHtml(state.current.title || '')} · ${state.current.backgroundTrackIndex}/${state.current.backgroundTrackTotal}`
+        : '';
+      row.innerHTML = `
+        <div class="bg-playlist-top">
+          <div class="bg-playlist-text">
+            <div class="bg-playlist-title">${escapeHtml(p.title || 'Плейлист')}</div>
+            <div class="bg-playlist-meta">${trackCount} треків · ${formatDuration(p.totalDuration)}</div>
+            ${nowPlaying ? `<div class="bg-playlist-now">${nowPlaying}</div>` : ''}
+          </div>
+          <div class="bg-playlist-controls">
+            <button type="button" class="bg-ctrl-btn${isActive ? ' on' : ''}" data-action="bg-activate" data-id="${p.id}" title="${isActive ? 'Деактивувати' : 'Активувати'}">${isActive ? '⏸' : '▶'}</button>
+            <button type="button" class="bg-ctrl-btn${p.shuffle ? ' on' : ''}" data-action="bg-shuffle" data-id="${p.id}" title="Перемішати">🔀</button>
+            <button type="button" class="bg-ctrl-btn${p.loop ? ' on' : ''}" data-action="bg-loop" data-id="${p.id}" title="Зациклити">🔁</button>
+            <button type="button" class="bg-ctrl-btn danger" data-action="bg-remove" data-id="${p.id}" title="Видалити">✕</button>
+          </div>
+        </div>`;
+      container.appendChild(row);
+    });
   }
 
   function renderProgress(position, duration) {
@@ -393,6 +473,18 @@
       return;
     }
 
+    // background playlist controls
+    const bgBtn = e.target.closest('.bg-ctrl-btn[data-action]');
+    if (bgBtn) {
+      const id = Number(bgBtn.dataset.id);
+      const action = bgBtn.dataset.action;
+      if (action === 'bg-activate') doAction({ cmd: 'setActiveBackgroundPlaylist', playlistId: bgBtn.classList.contains('on') ? 0 : id });
+      else if (action === 'bg-shuffle') doAction({ cmd: 'toggleBackgroundPlaylistShuffle', playlistId: id });
+      else if (action === 'bg-loop') doAction({ cmd: 'toggleBackgroundPlaylistLoop', playlistId: id });
+      else if (action === 'bg-remove') doAction({ cmd: 'removeBackgroundPlaylist', playlistId: id });
+      return;
+    }
+
     // unban chip in the Бан-листи panel
     const unbanBtn = e.target.closest('button[data-action="unban"]');
     if (unbanBtn) {
@@ -408,6 +500,15 @@
     e.preventDefault();
     const form = e.target;
     doAction({ cmd: 'addNext', url: form.url.value.trim(), requestedBy: form.requestedBy.value.trim() });
+    form.url.value = '';
+  });
+
+  document.getElementById('bg-playlist-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const url = form.url.value.trim();
+    if (!url) return;
+    doAction({ cmd: 'addBackgroundPlaylist', url });
     form.url.value = '';
   });
 
