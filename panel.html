@@ -150,11 +150,11 @@
   </div>
 </div>
 
-<h2>Додати трек вручну</h2>
+<h2>Додати трек наступним (тільки для стрімера)</h2>
 <form id="add-form">
   <input type="text" name="url" placeholder="Посилання (YouTube/SoundCloud/Spotify) або назва треку" required>
   <input type="text" name="requestedBy" placeholder="Хто замовив">
-  <button type="submit">Додати</button>
+  <button type="submit">Додати наступним</button>
 </form>
 
 <h2>Черга (<span id="queue-count">0</span>)</h2>
@@ -374,7 +374,7 @@
   document.getElementById('add-form').addEventListener('submit', (e) => {
     e.preventDefault();
     const form = e.target;
-    doAction({ cmd: 'add', url: form.url.value.trim(), requestedBy: form.requestedBy.value.trim() });
+    doAction({ cmd: 'addNext', url: form.url.value.trim(), requestedBy: form.requestedBy.value.trim() });
     form.url.value = '';
   });
 
