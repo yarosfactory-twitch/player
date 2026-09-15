@@ -27,7 +27,7 @@
     position: absolute;
     inset: -20px;
     background: #1c1620 center/cover no-repeat;
-    filter: blur(2px) brightness(0.6) saturate(115%);
+    filter: blur(10px) brightness(0.6) saturate(115%);
     transform: scale(1.08);
   }
   /* the "напівпрозоре скло" layer on top of the artwork — this is what makes it a
@@ -271,7 +271,7 @@
     videoEl.autoplay = true;
     videoEl.controls = false;
     videoEl.addEventListener('ended', sendEnded);
-    videoEl.addEventListener('error', handleStreamLoadError);
+    videoEl.addEventListener('error', handleMuxedLoadError);
     mediaRoot.appendChild(videoEl);
     if (usingPreload) videoEl.play().catch(() => {});
 
@@ -412,6 +412,31 @@
   function handleStreamLoadError() {
     console.error('Playback failed to load, falling back to Tune2Live.', currentTrack);
     doAction('Music - Handle', { cmd: 'directPlaybackFailed' });
+  }
+
+  // youtube-muxed serves a file WE already fully downloaded, from OUR OWN local
+  // HTTP server on this same machine — unlike a resolved external CDN stream,
+  // there's nothing platform-side that could be blocking it. A load error here
+  // is almost always a brief local timing hiccup (the local file server can take
+  // a moment to actually start accepting connections right after it logs that
+  // it's up, and the browser can race that by a few dozen milliseconds), not a
+  // genuinely unplayable video — so retry the same local URL a few times before
+  // giving up and falling back to Tune2Live like the other playback types do.
+  function handleMuxedLoadError() {
+    const failedGeneration = playGeneration;
+    const el = videoEl;
+    if (!el) return;
+    const attempt = (el._retryCount || 0) + 1;
+    el._retryCount = attempt;
+    if (attempt <= 3) {
+      setTimeout(() => {
+        if (failedGeneration !== playGeneration) return; // a newer track has since started
+        el.load();
+        el.play().catch(() => {});
+      }, 400 * attempt);
+      return;
+    }
+    handleStreamLoadError();
   }
 
   // Called when the current youtube-direct track finishes. If the next track is
