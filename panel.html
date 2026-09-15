@@ -69,10 +69,17 @@
   .queue-item {
     position: relative;
     background: #1f2226; border: 1px solid #2b2f35; border-radius: 6px;
-    padding: 8px 10px; display: flex; justify-content: space-between; align-items: center; gap: 8px;
+    padding: 8px 10px; display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;
   }
+  .queue-item-text { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 4px; }
   .queue-item .info { min-width: 0; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .queue-item .who { color: #9aa0a8; }
+  .badges { display: flex; flex-wrap: wrap; gap: 4px; }
+  .badge { display: inline-flex; align-items: center; gap: 3px; font-size: 10.5px; padding: 1px 7px; border-radius: 10px; line-height: 1.6; white-space: nowrap; }
+  .badge-sub { background: rgba(145, 70, 255, 0.18); color: #b794f6; }
+  .badge-priority { background: rgba(255, 193, 7, 0.15); color: #ffca4a; }
+  .badge-donation { background: rgba(56, 189, 120, 0.15); color: #4ade80; }
+  .badge-icon { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; }
   #empty { color: #6b7178; font-size: 12.5px; }
 
   .kebab-btn {
@@ -187,6 +194,9 @@
     'apple-music': 'https://raw.githubusercontent.com/yarosfactory-twitch/player/main/apple-music.svg',
     default: 'https://raw.githubusercontent.com/yarosfactory-twitch/player/main/default.svg'
   };
+  // Same repo as the platform icons above — upload donatello.svg there too.
+  const DONATELLO_ICON_URL = 'https://raw.githubusercontent.com/yarosfactory-twitch/player/main/donatello.svg';
+  const PRIORITY_LEVEL_DONATION = 8; // must match PRIORITY_LEVEL_DONATION in Music-Handle.cs
   const PLAY_ICON = '<path d="M8 5v14l11-7z"/>';
   const PAUSE_ICON = '<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>';
 
@@ -255,10 +265,14 @@
     } else {
       state.queue.forEach((t, idx) => {
         const url = trackUrl(t);
+        const badges = priorityBadgesHtml(t);
         const row = document.createElement('div');
         row.className = 'queue-item';
         row.innerHTML = `
-          <div class="info">${escapeHtml(trackLabel(t))}${t.artist ? ' — ' + escapeHtml(t.artist) : ''} <span class="who">${t.requestedBy ? '· ' + escapeHtml(t.requestedBy) : ''}</span></div>
+          <div class="queue-item-text">
+            <div class="info">${escapeHtml(trackLabel(t))}${t.artist ? ' — ' + escapeHtml(t.artist) : ''} <span class="who">${t.requestedBy ? '· ' + escapeHtml(t.requestedBy) : ''}</span></div>
+            ${badges ? `<div class="badges">${badges}</div>` : ''}
+          </div>
           <button class="kebab-btn" type="button" aria-label="Дії">⋮</button>
           <div class="item-menu" data-idx="${idx}">
             <button type="button" data-action="play-now" data-url="${escapeHtml(url)}">
@@ -301,6 +315,25 @@
   }
 
   function escapeHtml(s) { return String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+  // Renders the small chip row under a queue item: subscriber tier, a lightning
+  // bolt for the priority-redemption reward, or the Donatello amount for
+  // donation-boosted tracks. Mirrors the priorityLevel scheme from Music-Handle.cs —
+  // level 8 is a donation, everything else is subTier (0-3) plus +4 if it was the
+  // priority redemption (level 0 / plain follower gets no chip, nothing to call out).
+  function priorityBadgesHtml(t) {
+    const level = typeof t.priorityLevel === 'number' ? t.priorityLevel : 0;
+    if (level === PRIORITY_LEVEL_DONATION) {
+      const amount = Math.round(Number(t.prioritySecondary) || 0);
+      return `<span class="badge badge-donation"><img class="badge-icon" src="${DONATELLO_ICON_URL}" alt="">${amount}\u20b4</span>`;
+    }
+    const isPriority = level >= 4;
+    const subTier = isPriority ? level - 4 : level;
+    const chips = [];
+    if (subTier > 0) chips.push(`<span class="badge badge-sub">Тір ${subTier}</span>`);
+    if (isPriority) chips.push(`<span class="badge badge-priority">⚡ Пріоритет</span>`);
+    return chips.join('');
+  }
 
   function closeAllMenus() {
     document.querySelectorAll('.item-menu.open').forEach((m) => m.classList.remove('open'));
