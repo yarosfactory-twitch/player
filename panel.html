@@ -58,9 +58,10 @@
   .item-menu.pos-menu { right: 0; left: auto; min-width: 0; padding: 8px; }
   .pos-grid { display: grid; grid-template-columns: repeat(3, 26px); grid-template-rows: repeat(3, 26px); gap: 4px; }
   .pos-grid button {
-    all: unset; box-sizing: border-box;
-    width: 26px; height: 26px; border-radius: 5px;
-    background: #2b2f35; border: 1px solid rgba(255,255,255,0.4); cursor: pointer;
+    -webkit-appearance: none; appearance: none;
+    box-sizing: border-box; display: block;
+    width: 26px; height: 26px; margin: 0; padding: 0; border-radius: 5px;
+    background: #2b2f35; border: 1px solid rgba(255,255,255,0.4); cursor: pointer; outline: none;
   }
   .pos-grid button:hover { background: #383d44; border-color: rgba(255,255,255,0.7); }
   .pos-grid button.on { background: #24344f; border-color: #5b8cff; box-shadow: 0 0 0 1px #5b8cff; }
