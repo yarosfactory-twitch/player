@@ -93,10 +93,18 @@
     background: rgba(255,255,255,0.85);
     border-radius: 1px;
     animation: sc-eq-bounce 0.9s ease-in-out infinite;
+    transition: height 0.4s ease, opacity 0.4s ease;
   }
   #sc-eq span:nth-child(1) { height: 40%; animation-delay: 0s; }
   #sc-eq span:nth-child(2) { height: 100%; animation-delay: 0.15s; }
   #sc-eq span:nth-child(3) { height: 65%; animation-delay: 0.3s; }
+  /* on pause: fade/settle down to a low resting height instead of freezing
+     mid-bounce, which just looks stuck rather than "quieting down" */
+  #sc-eq.paused span {
+    animation: none !important;
+    height: 12% !important;
+    opacity: 0.5;
+  }
   @keyframes sc-eq-bounce {
     0%, 100% { transform: scaleY(0.4); }
     50% { transform: scaleY(1); }
@@ -735,8 +743,7 @@
     const eq = document.getElementById('sc-eq');
     if (!icon || !eq) return;
     icon.querySelector('svg').innerHTML = isPaused ? SC_PLAY_ICON : SC_PAUSE_ICON;
-    eq.style.animationPlayState = isPaused ? 'paused' : 'running';
-    eq.querySelectorAll('span').forEach((s) => { s.style.animationPlayState = isPaused ? 'paused' : 'running'; });
+    eq.classList.toggle('paused', isPaused); // CSS transition eases the bars down/back up instead of freezing them mid-bounce
   }
 
   // ---------- Streamer.bot WebSocket ----------
