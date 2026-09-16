@@ -128,9 +128,46 @@
   @media (prefers-reduced-motion: reduce) {
     #sc-eq span { animation: none; height: 70% !important; }
   }
+
+  /* ---- display modes (set via Music-Handle "setDisplayMode") ---- */
+  /* small (default): video/iframe confined to the same small badge box the
+     now-playing card already uses. Uploads come in every aspect ratio, so a
+     solid black backdrop is needed behind the video — otherwise letterboxing
+     would just show the transparent OBS source through the gaps. */
+  body.mode-small #media-root video,
+  body.mode-small #media-root iframe {
+    position: absolute; left: 20px; bottom: 20px;
+    width: 380px; height: 200px;
+    border-radius: 22px; background: #000;
+    object-fit: contain;
+  }
+
+  body.mode-fullscreen #media-root video,
+  body.mode-fullscreen #media-root iframe {
+    position: fixed; inset: 0;
+    width: 100vw; height: 100vh;
+    background: #000;
+    object-fit: contain;
+    border-radius: 0;
+  }
+  /* Scaling the whole card as one unit (rather than resizing the box and
+     leaving its internal pixel-positioned children stranded) keeps its
+     proportions — avatar/eq/progress bar all grow together instead of a
+     tiny badge floating in a huge empty box. */
+  body.mode-fullscreen #sc-card {
+    left: 50%; top: 50%; bottom: auto;
+    transform: translate(-50%, -50%) scale(2.4);
+    transform-origin: center center;
+  }
+
+  body.mode-none #media-root video,
+  body.mode-none #media-root iframe,
+  body.mode-none #sc-card {
+    opacity: 0; pointer-events: none;
+  }
 </style>
 </head>
-<body>
+<body class="mode-small">
 <div id="media-root"></div>
 <div id="sc-card" style="display:none;">
   <div id="sc-card-bg"></div>
@@ -680,6 +717,14 @@
     if (lastProgressTick) lastProgressTick();
   }
 
+  let currentDisplayMode = 'small';
+  function applyDisplayMode(mode) {
+    if (!mode || mode === currentDisplayMode) return;
+    if (mode !== 'none' && mode !== 'small' && mode !== 'fullscreen') return;
+    currentDisplayMode = mode;
+    document.body.className = 'mode-' + mode;
+  }
+
   function doAction(name, actionArgs) {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify({ request: 'DoAction', id: 'player-' + Date.now(), action: { name: name }, args: actionArgs }));
@@ -732,6 +777,7 @@
         else if (data.event === 'resume') resumePlayback();
         else if (data.event === 'stop') stopPlayback();
         else if (data.event === 'seek') handleSeek(data.position);
+        else if (data.event === 'state') applyDisplayMode(data.displayMode);
       };
       ws.onclose = () => setTimeout(connectWs, 2000);
       ws.onerror = () => ws.close();
