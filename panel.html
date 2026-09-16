@@ -54,6 +54,7 @@
   #skip-btn svg { width: 15px; height: 15px; fill: #e6e6e6; }
 
   #current-actions { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
+  #display-modes { display: flex; gap: 6px; }
   #quick-bans { display: flex; gap: 6px; }
   .quick-ban-btn {
     width: 26px; height: 26px; flex-shrink: 0; padding: 0;
@@ -165,13 +166,30 @@
     <div id="playpause">
       <svg id="playpause-icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
     </div>
+    <button id="skip-btn" title="Наступний трек"><svg viewBox="0 0 24 24"><path d="M6 6l8 6-8 6zM16 6h2v12h-2z"/></svg></button>
   </div>
   <div id="progress-row">
     <input type="range" id="progress-slider" min="0" max="1000" value="0">
     <div id="time-label">00:00 / 00:00</div>
   </div>
   <div id="current-actions">
-    <button id="skip-btn" title="Наступний трек"><svg viewBox="0 0 24 24"><path d="M6 6l8 6-8 6zM16 6h2v12h-2z"/></svg></button>
+    <div id="display-modes">
+      <button class="bg-ctrl-btn" data-mode="none" title="Тільки звук">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 17V5l11-2v12"/><circle cx="6" cy="17" r="3"/><circle cx="17" cy="13" r="3"/>
+        </svg>
+      </button>
+      <button class="bg-ctrl-btn" data-mode="small" title="Маленьке відео (як плашка)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="4" width="20" height="16" rx="2"/><rect x="12" y="12" width="8" height="6" rx="1"/>
+        </svg>
+      </button>
+      <button class="bg-ctrl-btn" data-mode="fullscreen" title="Повний екран">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M8 3H5a2 2 0 00-2 2v3"/><path d="M21 8V5a2 2 0 00-2-2h-3"/><path d="M3 16v3a2 2 0 002 2h3"/><path d="M16 21h3a2 2 0 002-2v-3"/>
+        </svg>
+      </button>
+    </div>
     <div id="quick-bans">
       <button class="quick-ban-btn" id="qb-song" type="button" title="Забанити пісню">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
@@ -355,6 +373,11 @@
     renderBanGroup('ban-artists', state.bans.artists, 'artist');
     renderBanGroup('ban-songs', state.bans.links, 'link');
     renderBackgroundPlaylists(state);
+
+    const activeMode = state.displayMode || 'small';
+    document.querySelectorAll('#display-modes .bg-ctrl-btn').forEach((btn) => {
+      btn.classList.toggle('on', btn.dataset.mode === activeMode);
+    });
   }
 
   function formatDuration(seconds) {
@@ -520,6 +543,13 @@
       else if (action === 'bg-shuffle') doAction({ cmd: 'toggleBackgroundPlaylistShuffle', playlistId: id });
       else if (action === 'bg-loop') doAction({ cmd: 'toggleBackgroundPlaylistLoop', playlistId: id });
       else if (action === 'bg-remove') doAction({ cmd: 'removeBackgroundPlaylist', playlistId: id });
+      return;
+    }
+
+    // display mode buttons
+    const modeBtn = e.target.closest('#display-modes .bg-ctrl-btn[data-mode]');
+    if (modeBtn) {
+      doAction({ cmd: 'setDisplayMode', mode: modeBtn.dataset.mode });
       return;
     }
 
