@@ -65,6 +65,17 @@
   .quick-ban-btn:disabled { opacity: 0.35; cursor: default; }
   .quick-ban-btn svg { width: 13px; height: 13px; }
 
+  .bg-ctrl-btn {
+    width: 26px; height: 26px; flex-shrink: 0; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: #2b2f35; border: 1px solid #383d44; border-radius: 50%;
+    color: #9aa0a8; cursor: pointer;
+  }
+  .bg-ctrl-btn:hover { background: #383d44; color: #e6e6e6; }
+  .bg-ctrl-btn.danger:hover { background: #3a2626; border-color: #5a3535; color: #e07d7d; }
+  .bg-ctrl-btn.on { background: #24344f; border-color: #3d5a8a; color: #7fa8ff; }
+  .bg-ctrl-btn svg { width: 13px; height: 13px; }
+
   button { background: #2b2f35; color: #e6e6e6; border: 1px solid #383d44; border-radius: 4px; padding: 6px 10px; font-size: 12px; cursor: pointer; }
   button:hover { background: #383d44; }
 
@@ -93,33 +104,15 @@
   #bg-playlists { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
   #bg-empty { color: #6b7178; font-size: 12.5px; }
   .bg-playlist-item {
-    position: relative;
     background: #1f2226; border: 1px solid #2b2f35; border-radius: 6px;
-    padding: 8px 10px; display: flex; flex-direction: column; gap: 6px;
+    padding: 8px 10px; display: flex; justify-content: space-between; align-items: center; gap: 8px;
   }
   .bg-playlist-item.active { border-color: #5b8cff; }
-  .bg-playlist-row1 { display: flex; align-items: center; gap: 8px; }
-  .bg-play-btn {
-    width: 30px; height: 30px; flex-shrink: 0; padding: 0;
-    display: flex; align-items: center; justify-content: center;
-    background: #2b2f35; border: 1px solid #383d44; border-radius: 50%;
-    color: #e6e6e6; cursor: pointer;
-  }
-  .bg-play-btn:hover { background: #383d44; }
-  .bg-play-btn svg { width: 13px; height: 13px; fill: currentColor; }
   .bg-playlist-text { min-width: 0; flex: 1; }
   .bg-playlist-title { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .bg-playlist-item.active .bg-playlist-title { color: #7fa8ff; }
   .bg-playlist-meta { font-size: 11px; color: #9aa0a8; margin-top: 2px; }
-  .bg-playlist-toggles { display: flex; gap: 4px; padding-left: 38px; }
-  .bg-toggle-icon {
-    width: 24px; height: 22px; padding: 0;
-    display: flex; align-items: center; justify-content: center;
-    background: transparent; border: none; border-radius: 4px;
-    color: #6b7178; cursor: pointer; font-size: 12.5px;
-  }
-  .bg-toggle-icon:hover { background: #2b2f35; }
-  .bg-toggle-icon.on { color: #7fa8ff; }
+  .bg-playlist-controls { display: flex; gap: 4px; flex-shrink: 0; }
   #bg-playlist-form { display: flex; gap: 6px; margin-bottom: 12px; }
   #bg-playlist-form input { background: #1f2226; border: 1px solid #2b2f35; color: #e6e6e6; border-radius: 4px; padding: 6px 8px; font-size: 12px; flex: 1; }
 
@@ -249,6 +242,9 @@
   const PRIORITY_LEVEL_DONATION = 8; // must match PRIORITY_LEVEL_DONATION in Music-Handle.cs
   const PLAY_ICON = '<path d="M8 5v14l11-7z"/>';
   const PAUSE_ICON = '<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>';
+  const SHUFFLE_ICON = '<path d="M16 3h5v5"/><path d="M4 20L21 3"/><path d="M21 16v5h-5"/><path d="M15 15l6 6"/><path d="M4 4l5 5"/>';
+  const LOOP_ICON = '<path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 014-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 01-4 4H3"/>';
+  const REMOVE_ICON = '<line x1="6" y1="6" x2="18" y2="18"/><line x1="6" y1="18" x2="18" y2="6"/>';
 
   function connect() {
     ws = new WebSocket('ws://127.0.0.1:' + sbPort + '/');
@@ -379,10 +375,10 @@
       return;
     }
     container.innerHTML = '';
-    playlists.forEach((p, idx) => {
+    playlists.forEach((p) => {
       const isActive = p.id === activeId;
       const isPlayingHere = isActive && state.current && state.current.backgroundPlaylistId === p.id;
-      const showingPause = isPlayingHere && !state.paused; // playing right now -> button offers pause
+      const showingPause = isPlayingHere && !state.paused;
       const trackCount = (p.tracks || []).length;
       const titleLine = isPlayingHere
         ? `${escapeHtml(p.title || 'Плейлист')} - ${state.current.backgroundTrackIndex}/${state.current.backgroundTrackTotal}`
@@ -391,24 +387,23 @@
       const row = document.createElement('div');
       row.className = 'bg-playlist-item' + (isActive ? ' active' : '');
       row.innerHTML = `
-        <div class="bg-playlist-row1">
-          <button type="button" class="bg-play-btn" data-action="bg-play-toggle" data-id="${p.id}" title="${showingPause ? 'Пауза' : 'Відтворити'}">
+        <div class="bg-playlist-text">
+          <div class="bg-playlist-title">${titleLine}</div>
+          ${!isPlayingHere ? `<div class="bg-playlist-meta">${trackCount} треків · ${formatDuration(p.totalDuration)}</div>` : ''}
+        </div>
+        <div class="bg-playlist-controls">
+          <button type="button" class="bg-ctrl-btn" data-action="bg-play-toggle" data-id="${p.id}" title="${showingPause ? 'Пауза' : 'Відтворити'}">
             <svg viewBox="0 0 24 24">${showingPause ? PAUSE_ICON : PLAY_ICON}</svg>
           </button>
-          <div class="bg-playlist-text">
-            <div class="bg-playlist-title">${titleLine}</div>
-            ${!isPlayingHere ? `<div class="bg-playlist-meta">${trackCount} треків · ${formatDuration(p.totalDuration)}</div>` : ''}
-          </div>
-          <button class="kebab-btn" type="button" aria-label="Дії">⋮</button>
-          <div class="item-menu" data-bgmenu="${p.id}">
-            <button type="button" class="danger" data-action="bg-remove" data-id="${p.id}">
-              <span class="menu-icon">✕</span> Видалити плейлист
-            </button>
-          </div>
-        </div>
-        <div class="bg-playlist-toggles">
-          <button type="button" class="bg-toggle-icon${p.loop ? ' on' : ''}" data-action="bg-loop" data-id="${p.id}" title="Зациклити">🔁</button>
-          <button type="button" class="bg-toggle-icon${p.shuffle ? ' on' : ''}" data-action="bg-shuffle" data-id="${p.id}" title="Перемішати">🔀</button>
+          <button type="button" class="bg-ctrl-btn${p.shuffle ? ' on' : ''}" data-action="bg-shuffle" data-id="${p.id}" title="Перемішати">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${SHUFFLE_ICON}</svg>
+          </button>
+          <button type="button" class="bg-ctrl-btn${p.loop ? ' on' : ''}" data-action="bg-loop" data-id="${p.id}" title="Зациклити">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${LOOP_ICON}</svg>
+          </button>
+          <button type="button" class="bg-ctrl-btn danger" data-action="bg-remove" data-id="${p.id}" title="Видалити">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">${REMOVE_ICON}</svg>
+          </button>
         </div>`;
       container.appendChild(row);
     });
@@ -510,13 +505,12 @@
       else if (action === 'remove') doAction({ cmd: 'remove', url: menuBtn.dataset.url });
       else if (action === 'ban-link') doAction({ cmd: 'ban', banType: 'link', value: menuBtn.dataset.url });
       else if (action === 'ban-user') doAction({ cmd: 'ban', banType: 'user', value: menuBtn.dataset.value });
-      else if (action === 'bg-remove') doAction({ cmd: 'removeBackgroundPlaylist', playlistId: Number(menuBtn.dataset.id) });
       closeAllMenus();
       return;
     }
 
     // background playlist controls
-    const bgBtn = e.target.closest('.bg-play-btn, .bg-toggle-icon');
+    const bgBtn = e.target.closest('.bg-ctrl-btn[data-action]');
     if (bgBtn) {
       const id = Number(bgBtn.dataset.id);
       const action = bgBtn.dataset.action;
@@ -527,6 +521,7 @@
       }
       else if (action === 'bg-shuffle') doAction({ cmd: 'toggleBackgroundPlaylistShuffle', playlistId: id });
       else if (action === 'bg-loop') doAction({ cmd: 'toggleBackgroundPlaylistLoop', playlistId: id });
+      else if (action === 'bg-remove') doAction({ cmd: 'removeBackgroundPlaylist', playlistId: id });
       return;
     }
 
