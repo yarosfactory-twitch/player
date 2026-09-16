@@ -688,6 +688,7 @@
   function pausePlayback() {
     if (!currentTrack) return;
     paused = true;
+    setScCardPaused(true); // was only reached for the SoundCloud-iframe branch below — audio-card tracks (which use audioEl, hitting the early return) never got the icon/eq update
     if (videoEl || audioEl) {
       if (videoEl) videoEl.pause();
       if (audioEl) audioEl.pause();
@@ -696,7 +697,6 @@
     }
     stopOldMedia();
     mediaRoot.innerHTML = '';
-    setScCardPaused(true);
   }
   function resumePlayback() {
     if (!currentTrack || !paused) return;
