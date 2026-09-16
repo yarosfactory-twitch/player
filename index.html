@@ -29,7 +29,9 @@
 
   #sc-card {
     position: absolute;
-    left: 20px; bottom: 20px;
+    top: var(--pos-top, auto); left: var(--pos-left, 20px);
+    right: var(--pos-right, auto); bottom: var(--pos-bottom, 20px);
+    transform: var(--pos-transform, none);
     width: 380px;
     height: 200px;
     border-radius: 22px;
@@ -154,7 +156,10 @@
      would just show the transparent OBS source through the gaps. */
   body.mode-small #media-root video,
   body.mode-small #media-root iframe {
-    position: absolute; left: 20px; bottom: 20px;
+    position: absolute;
+    top: var(--pos-top, auto); left: var(--pos-left, 20px);
+    right: var(--pos-right, auto); bottom: var(--pos-bottom, 20px);
+    transform: var(--pos-transform, none);
     width: 380px; height: 200px;
     border-radius: 22px; background: #000;
     object-fit: contain;
@@ -173,7 +178,7 @@
      proportions — avatar/eq/progress bar all grow together instead of a
      tiny badge floating in a huge empty box. */
   body.mode-fullscreen #sc-card {
-    left: 50%; top: 50%; bottom: auto;
+    left: 50%; top: 50%; right: auto; bottom: auto;
     transform: translate(-50%, -50%) scale(2.4);
     transform-origin: center center;
   }
@@ -753,6 +758,34 @@
     document.body.classList.add('mode-' + mode); // classList, not className — className would wipe out .has-card too
   }
 
+  // 3x3 grid of spots the small/badge video or card can sit at — translated into
+  // the --pos-* CSS custom properties that #sc-card and the small-mode video rule
+  // both read from, so both stay in sync from one source of truth.
+  const DISPLAY_POSITIONS = {
+    'top-left':      { top: '20px', left: '20px', right: 'auto', bottom: 'auto', transform: 'none' },
+    'top-center':    { top: '20px', left: '50%',  right: 'auto', bottom: 'auto', transform: 'translateX(-50%)' },
+    'top-right':     { top: '20px', left: 'auto', right: '20px', bottom: 'auto', transform: 'none' },
+    'middle-left':   { top: '50%',  left: '20px', right: 'auto', bottom: 'auto', transform: 'translateY(-50%)' },
+    'center':        { top: '50%',  left: '50%',  right: 'auto', bottom: 'auto', transform: 'translate(-50%, -50%)' },
+    'middle-right':  { top: '50%',  left: 'auto', right: '20px', bottom: 'auto', transform: 'translateY(-50%)' },
+    'bottom-left':   { top: 'auto', left: '20px', right: 'auto', bottom: '20px', transform: 'none' },
+    'bottom-center': { top: 'auto', left: '50%',  right: 'auto', bottom: '20px', transform: 'translateX(-50%)' },
+    'bottom-right':  { top: 'auto', left: 'auto', right: '20px', bottom: '20px', transform: 'none' }
+  };
+  let currentDisplayPosition = null;
+  function applyDisplayPosition(position) {
+    if (!position || position === currentDisplayPosition) return;
+    const p = DISPLAY_POSITIONS[position];
+    if (!p) return;
+    currentDisplayPosition = position;
+    const root = document.documentElement.style;
+    root.setProperty('--pos-top', p.top);
+    root.setProperty('--pos-left', p.left);
+    root.setProperty('--pos-right', p.right);
+    root.setProperty('--pos-bottom', p.bottom);
+    root.setProperty('--pos-transform', p.transform);
+  }
+
   function doAction(name, actionArgs) {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify({ request: 'DoAction', id: 'player-' + Date.now(), action: { name: name }, args: actionArgs }));
@@ -805,7 +838,7 @@
         else if (data.event === 'resume') resumePlayback();
         else if (data.event === 'stop') stopPlayback();
         else if (data.event === 'seek') handleSeek(data.position);
-        else if (data.event === 'state') applyDisplayMode(data.displayMode);
+        else if (data.event === 'state') { applyDisplayMode(data.displayMode); applyDisplayPosition(data.displayPosition); }
       };
       ws.onclose = () => setTimeout(connectWs, 2000);
       ws.onerror = () => ws.close();
