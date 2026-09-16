@@ -54,7 +54,16 @@
   #skip-btn svg { width: 15px; height: 15px; fill: #e6e6e6; }
 
   #current-actions { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
-  #display-modes { display: flex; gap: 6px; }
+  #display-modes { position: relative; display: flex; align-items: center; gap: 6px; }
+  .pos-menu { right: 0; left: auto; min-width: 0; padding: 8px; }
+  .pos-grid { display: grid; grid-template-columns: repeat(3, 26px); grid-template-rows: repeat(3, 26px); gap: 4px; }
+  .pos-grid button {
+    all: unset; box-sizing: border-box;
+    width: 26px; height: 26px; border-radius: 5px;
+    background: #2b2f35; border: 1px solid #383d44; cursor: pointer;
+  }
+  .pos-grid button:hover { background: #383d44; }
+  .pos-grid button.on { background: #24344f; border-color: #5b8cff; }
   #quick-bans { display: flex; gap: 6px; }
   .quick-ban-btn {
     width: 26px; height: 26px; flex-shrink: 0; padding: 0;
@@ -189,6 +198,20 @@
           <path d="M8 3H5a2 2 0 00-2 2v3"/><path d="M21 8V5a2 2 0 00-2-2h-3"/><path d="M3 16v3a2 2 0 002 2h3"/><path d="M16 21h3a2 2 0 002-2v-3"/>
         </svg>
       </button>
+      <button class="kebab-btn" type="button" id="pos-kebab" aria-label="Позиція на екрані" title="Позиція маленького відео/картки">⋮</button>
+      <div class="item-menu pos-menu" data-posmenu>
+        <div class="pos-grid">
+          <button type="button" data-pos="top-left" title="Зверху зліва"></button>
+          <button type="button" data-pos="top-center" title="Зверху по центру"></button>
+          <button type="button" data-pos="top-right" title="Зверху справа"></button>
+          <button type="button" data-pos="middle-left" title="Зліва по центру"></button>
+          <button type="button" data-pos="center" title="По центру"></button>
+          <button type="button" data-pos="middle-right" title="Справа по центру"></button>
+          <button type="button" data-pos="bottom-left" title="Знизу зліва"></button>
+          <button type="button" data-pos="bottom-center" title="Знизу по центру"></button>
+          <button type="button" data-pos="bottom-right" title="Знизу справа"></button>
+        </div>
+      </div>
     </div>
     <div id="quick-bans">
       <button class="quick-ban-btn" id="qb-song" type="button" title="Забанити пісню">
@@ -378,6 +401,11 @@
     document.querySelectorAll('#display-modes .bg-ctrl-btn').forEach((btn) => {
       btn.classList.toggle('on', btn.dataset.mode === activeMode);
     });
+
+    const activePos = state.displayPosition || 'bottom-left';
+    document.querySelectorAll('.pos-grid button').forEach((btn) => {
+      btn.classList.toggle('on', btn.dataset.pos === activePos);
+    });
   }
 
   function formatDuration(seconds) {
@@ -550,6 +578,14 @@
     const modeBtn = e.target.closest('#display-modes .bg-ctrl-btn[data-mode]');
     if (modeBtn) {
       doAction({ cmd: 'setDisplayMode', mode: modeBtn.dataset.mode });
+      return;
+    }
+
+    // display position grid
+    const posBtn = e.target.closest('.pos-grid button[data-pos]');
+    if (posBtn) {
+      doAction({ cmd: 'setDisplayPosition', position: posBtn.dataset.pos });
+      closeAllMenus();
       return;
     }
 
