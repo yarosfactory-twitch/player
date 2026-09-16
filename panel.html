@@ -19,6 +19,14 @@
   }
   #current-top { display: flex; align-items: center; gap: 10px; }
   #platform-icon { width: 22px; height: 22px; flex-shrink: 0; border-radius: 50%; object-fit: cover; background: #2b2f35; }
+  #platform-icon-wrap { position: relative; width: 22px; height: 22px; flex-shrink: 0; }
+  #platform-icon-wrap.loading::before {
+    content: ''; position: absolute; inset: -4px;
+    border-radius: 50%; border: 2px solid transparent;
+    border-top-color: #5b8cff; border-right-color: #5b8cff;
+    animation: platform-icon-spin 0.8s linear infinite;
+  }
+  @keyframes platform-icon-spin { to { transform: rotate(360deg); } }
   #current-info { min-width: 0; flex: 1; }
   #cur-title { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #cur-sub { font-size: 12px; color: #9aa0a8; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -85,25 +93,33 @@
   #bg-playlists { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
   #bg-empty { color: #6b7178; font-size: 12.5px; }
   .bg-playlist-item {
+    position: relative;
     background: #1f2226; border: 1px solid #2b2f35; border-radius: 6px;
-    padding: 8px 10px; display: flex; flex-direction: column; gap: 5px;
+    padding: 8px 10px; display: flex; flex-direction: column; gap: 6px;
   }
   .bg-playlist-item.active { border-color: #5b8cff; }
-  .bg-playlist-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+  .bg-playlist-row1 { display: flex; align-items: center; gap: 8px; }
+  .bg-play-btn {
+    width: 30px; height: 30px; flex-shrink: 0; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: #2b2f35; border: 1px solid #383d44; border-radius: 50%;
+    color: #e6e6e6; cursor: pointer;
+  }
+  .bg-play-btn:hover { background: #383d44; }
+  .bg-play-btn svg { width: 13px; height: 13px; fill: currentColor; }
   .bg-playlist-text { min-width: 0; flex: 1; }
   .bg-playlist-title { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bg-playlist-item.active .bg-playlist-title { color: #7fa8ff; }
   .bg-playlist-meta { font-size: 11px; color: #9aa0a8; margin-top: 2px; }
-  .bg-playlist-now { font-size: 11px; color: #5fbf6f; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .bg-playlist-controls { display: flex; gap: 4px; flex-shrink: 0; }
-  .bg-ctrl-btn {
-    width: 26px; height: 26px; flex-shrink: 0; padding: 0;
+  .bg-playlist-toggles { display: flex; gap: 4px; padding-left: 38px; }
+  .bg-toggle-icon {
+    width: 24px; height: 22px; padding: 0;
     display: flex; align-items: center; justify-content: center;
-    background: #2b2f35; border: 1px solid #383d44; border-radius: 5px;
-    color: #9aa0a8; cursor: pointer; font-size: 12.5px;
+    background: transparent; border: none; border-radius: 4px;
+    color: #6b7178; cursor: pointer; font-size: 12.5px;
   }
-  .bg-ctrl-btn:hover { background: #383d44; }
-  .bg-ctrl-btn.on { background: #24344f; border-color: #3d5a8a; color: #7fa8ff; }
-  .bg-ctrl-btn.danger:hover { background: #3a2626; border-color: #5a3535; color: #e07d7d; }
+  .bg-toggle-icon:hover { background: #2b2f35; }
+  .bg-toggle-icon.on { color: #7fa8ff; }
   #bg-playlist-form { display: flex; gap: 6px; margin-bottom: 12px; }
   #bg-playlist-form input { background: #1f2226; border: 1px solid #2b2f35; color: #e6e6e6; border-radius: 4px; padding: 6px 8px; font-size: 12px; flex: 1; }
 
@@ -147,7 +163,7 @@
 <h2>Поточний трек</h2>
 <div id="current">
   <div id="current-top">
-    <img id="platform-icon" alt="">
+    <div id="platform-icon-wrap"><img id="platform-icon" alt=""></div>
     <div id="current-info">
       <div id="cur-title">Нічого не грає</div>
       <div id="cur-sub"></div>
@@ -214,6 +230,8 @@
   let lastPaused = false;
   let lastDuration = 0;
   let isSeeking = false;
+  let currentKnownKey = null;       // identity of whatever track is currently shown as "current"
+  let progressReceivedForKey = null; // set once a real progress tick has arrived for that track
 
   let currentTrack = null;
 
@@ -273,6 +291,16 @@
     const cur = state.current;
     currentTrack = cur;
     lastPaused = !!state.paused;
+
+    const curKey = cur ? (cur.id != null ? cur.id : trackLabel(cur)) : null;
+    if (curKey !== currentKnownKey) {
+      // the current track just changed (or playback stopped) — a freshly claimed
+      // track hasn't reported real progress yet, so the spinner starts again;
+      // renderProgress clears it once an actual position/duration tick arrives.
+      currentKnownKey = curKey;
+      progressReceivedForKey = null;
+    }
+    document.getElementById('platform-icon-wrap').classList.toggle('loading', !!cur && progressReceivedForKey !== curKey);
 
     document.getElementById('cur-title').textContent = cur ? trackLabel(cur) : 'Нічого не грає';
     document.getElementById('cur-sub').textContent = cur
@@ -351,27 +379,36 @@
       return;
     }
     container.innerHTML = '';
-    playlists.forEach((p) => {
+    playlists.forEach((p, idx) => {
       const isActive = p.id === activeId;
+      const isPlayingHere = isActive && state.current && state.current.backgroundPlaylistId === p.id;
+      const showingPause = isPlayingHere && !state.paused; // playing right now -> button offers pause
+      const trackCount = (p.tracks || []).length;
+      const titleLine = isPlayingHere
+        ? `${escapeHtml(p.title || 'Плейлист')} - ${state.current.backgroundTrackIndex}/${state.current.backgroundTrackTotal}`
+        : escapeHtml(p.title || 'Плейлист');
+
       const row = document.createElement('div');
       row.className = 'bg-playlist-item' + (isActive ? ' active' : '');
-      const trackCount = (p.tracks || []).length;
-      const nowPlaying = (isActive && state.current && state.current.backgroundPlaylistId === p.id)
-        ? `▶ ${escapeHtml(state.current.title || '')} · ${state.current.backgroundTrackIndex}/${state.current.backgroundTrackTotal}`
-        : '';
       row.innerHTML = `
-        <div class="bg-playlist-top">
+        <div class="bg-playlist-row1">
+          <button type="button" class="bg-play-btn" data-action="bg-play-toggle" data-id="${p.id}" title="${showingPause ? 'Пауза' : 'Відтворити'}">
+            <svg viewBox="0 0 24 24">${showingPause ? PAUSE_ICON : PLAY_ICON}</svg>
+          </button>
           <div class="bg-playlist-text">
-            <div class="bg-playlist-title">${escapeHtml(p.title || 'Плейлист')}</div>
-            <div class="bg-playlist-meta">${trackCount} треків · ${formatDuration(p.totalDuration)}</div>
-            ${nowPlaying ? `<div class="bg-playlist-now">${nowPlaying}</div>` : ''}
+            <div class="bg-playlist-title">${titleLine}</div>
+            ${!isPlayingHere ? `<div class="bg-playlist-meta">${trackCount} треків · ${formatDuration(p.totalDuration)}</div>` : ''}
           </div>
-          <div class="bg-playlist-controls">
-            <button type="button" class="bg-ctrl-btn${isActive ? ' on' : ''}" data-action="bg-activate" data-id="${p.id}" title="${isActive ? 'Деактивувати' : 'Активувати'}">${isActive ? '⏸' : '▶'}</button>
-            <button type="button" class="bg-ctrl-btn${p.shuffle ? ' on' : ''}" data-action="bg-shuffle" data-id="${p.id}" title="Перемішати">🔀</button>
-            <button type="button" class="bg-ctrl-btn${p.loop ? ' on' : ''}" data-action="bg-loop" data-id="${p.id}" title="Зациклити">🔁</button>
-            <button type="button" class="bg-ctrl-btn danger" data-action="bg-remove" data-id="${p.id}" title="Видалити">✕</button>
+          <button class="kebab-btn" type="button" aria-label="Дії">⋮</button>
+          <div class="item-menu" data-bgmenu="${p.id}">
+            <button type="button" class="danger" data-action="bg-remove" data-id="${p.id}">
+              <span class="menu-icon">✕</span> Видалити плейлист
+            </button>
           </div>
+        </div>
+        <div class="bg-playlist-toggles">
+          <button type="button" class="bg-toggle-icon${p.loop ? ' on' : ''}" data-action="bg-loop" data-id="${p.id}" title="Зациклити">🔁</button>
+          <button type="button" class="bg-toggle-icon${p.shuffle ? ' on' : ''}" data-action="bg-shuffle" data-id="${p.id}" title="Перемішати">🔀</button>
         </div>`;
       container.appendChild(row);
     });
@@ -384,6 +421,10 @@
       const slider = document.getElementById('progress-slider');
       const pct = duration > 0 ? Math.min(1000, (position / duration) * 1000) : 0;
       slider.value = pct;
+    }
+    if (duration > 0 && progressReceivedForKey !== currentKnownKey) {
+      progressReceivedForKey = currentKnownKey;
+      document.getElementById('platform-icon-wrap').classList.remove('loading');
     }
   }
 
@@ -469,19 +510,23 @@
       else if (action === 'remove') doAction({ cmd: 'remove', url: menuBtn.dataset.url });
       else if (action === 'ban-link') doAction({ cmd: 'ban', banType: 'link', value: menuBtn.dataset.url });
       else if (action === 'ban-user') doAction({ cmd: 'ban', banType: 'user', value: menuBtn.dataset.value });
+      else if (action === 'bg-remove') doAction({ cmd: 'removeBackgroundPlaylist', playlistId: Number(menuBtn.dataset.id) });
       closeAllMenus();
       return;
     }
 
     // background playlist controls
-    const bgBtn = e.target.closest('.bg-ctrl-btn[data-action]');
+    const bgBtn = e.target.closest('.bg-play-btn, .bg-toggle-icon');
     if (bgBtn) {
       const id = Number(bgBtn.dataset.id);
       const action = bgBtn.dataset.action;
-      if (action === 'bg-activate') doAction({ cmd: 'setActiveBackgroundPlaylist', playlistId: bgBtn.classList.contains('on') ? 0 : id });
+      if (action === 'bg-play-toggle') {
+        const isPlayingHere = currentTrack && currentTrack.backgroundPlaylistId === id;
+        if (isPlayingHere) doAction({ cmd: lastPaused ? 'resume' : 'pause' });
+        else doAction({ cmd: 'setActiveBackgroundPlaylist', playlistId: id });
+      }
       else if (action === 'bg-shuffle') doAction({ cmd: 'toggleBackgroundPlaylistShuffle', playlistId: id });
       else if (action === 'bg-loop') doAction({ cmd: 'toggleBackgroundPlaylistLoop', playlistId: id });
-      else if (action === 'bg-remove') doAction({ cmd: 'removeBackgroundPlaylist', playlistId: id });
       return;
     }
 
