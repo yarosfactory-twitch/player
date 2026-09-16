@@ -105,6 +105,14 @@
     height: 12% !important;
     opacity: 0.5;
   }
+  /* Resuming: briefly hold the animation off and let each bar transition
+     (via the base rule's `transition: height`) from the thin paused strip up
+     to its normal resting height, so it visibly "grows" — then JS removes
+     this class a moment later and the bounce keyframes take back over. */
+  #sc-eq.growing span { animation: none !important; opacity: 1; }
+  #sc-eq.growing span:nth-child(1) { height: 40% !important; }
+  #sc-eq.growing span:nth-child(2) { height: 100% !important; }
+  #sc-eq.growing span:nth-child(3) { height: 65% !important; }
   @keyframes sc-eq-bounce {
     0%, 100% { transform: scaleY(0.4); }
     50% { transform: scaleY(1); }
@@ -738,12 +746,24 @@
 
   const SC_PLAY_ICON = '<path d="M8 5v14l11-7z"/>';
   const SC_PAUSE_ICON = '<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>';
+  let eqGrowTimeout = null;
   function setScCardPaused(isPaused) {
     const icon = document.getElementById('sc-playpause');
     const eq = document.getElementById('sc-eq');
     if (!icon || !eq) return;
     icon.querySelector('svg').innerHTML = isPaused ? SC_PLAY_ICON : SC_PAUSE_ICON;
-    eq.classList.toggle('paused', isPaused); // CSS transition eases the bars down/back up instead of freezing them mid-bounce
+    clearTimeout(eqGrowTimeout);
+    if (isPaused) {
+      eq.classList.remove('growing');
+      eq.classList.add('paused');
+    } else {
+      // grow from the thin paused strip up to resting height first, THEN hand
+      // control back to the bounce animation — swapping straight to the bounce
+      // keyframes would just snap/restart it instead of visibly growing
+      eq.classList.remove('paused');
+      eq.classList.add('growing');
+      eqGrowTimeout = setTimeout(() => { eq.classList.remove('growing'); }, 400);
+    }
   }
 
   // ---------- Streamer.bot WebSocket ----------
