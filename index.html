@@ -10,6 +10,23 @@
   /* SoundCloud audio iframe is muted-of-view — it plays the sound, the card below shows it */
   #sc-audio-frame { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 
+  /* Full-screen blurred backdrop for card mode (Spotify/YT Music/Apple Music/
+     SoundCloud) when in fullscreen display mode — separate from #sc-card-bg
+     (which stays confined to the small card box) because a CSS transform:scale
+     on #sc-card only enlarges it within its own bounding box, it can never
+     actually cover the full viewport edge-to-edge. Kept in sync with the same
+     artwork by renderScCard; only actually shown via body.mode-fullscreen.has-card. */
+  #fullscreen-bg {
+    position: fixed; inset: 0;
+    background: #1c1620 center/cover no-repeat;
+    filter: blur(40px) brightness(0.55) saturate(120%);
+    transform: scale(1.15);
+    z-index: 0;
+    opacity: 0;
+    transition: opacity 0.25s ease;
+  }
+  body.mode-fullscreen.has-card #fullscreen-bg { opacity: 1; }
+
   #sc-card {
     position: absolute;
     left: 20px; bottom: 20px;
@@ -20,6 +37,7 @@
     font-family: system-ui, sans-serif;
     border: 1px solid rgba(255,255,255,0.14);
     box-shadow: 0 10px 30px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.08);
+    z-index: 1;
   }
 
   /* blurred album/video artwork, when we have one — sits behind everything else */
@@ -168,6 +186,7 @@
 </style>
 </head>
 <body class="mode-small">
+<div id="fullscreen-bg"></div>
 <div id="media-root"></div>
 <div id="sc-card" style="display:none;">
   <div id="sc-card-bg"></div>
@@ -582,7 +601,12 @@
 
   function renderScCard(meta) {
     const card = document.getElementById('sc-card');
-    if (!meta) { card.style.display = 'none'; return; }
+    const fsBg = document.getElementById('fullscreen-bg');
+    if (!meta) {
+      card.style.display = 'none';
+      document.body.classList.remove('has-card');
+      return;
+    }
     document.getElementById('sc-title').textContent = meta.title || 'Без назви';
     document.getElementById('sc-artist').textContent = meta.artist || '';
     document.getElementById('sc-requester').textContent = meta.requestedBy ? ('замовив: ' + meta.requestedBy) : '';
@@ -591,8 +615,11 @@
     avatar.style.backgroundImage = safeAvatar ? `url("${safeAvatar}")` : 'none';
     const bg = document.getElementById('sc-card-bg');
     const safeArtwork = safeCssUrl(meta.artwork);
-    bg.style.backgroundImage = safeArtwork ? `url("${safeArtwork}")` : 'none';
+    const artworkCss = safeArtwork ? `url("${safeArtwork}")` : 'none';
+    bg.style.backgroundImage = artworkCss;
+    fsBg.style.backgroundImage = artworkCss; // kept in sync so the fullscreen backdrop matches — actual visibility is CSS-driven (body.mode-fullscreen.has-card)
     card.style.display = 'block';
+    document.body.classList.add('has-card');
   }
 
   function bindScWidget(iframe, resumeAt) {
@@ -721,8 +748,9 @@
   function applyDisplayMode(mode) {
     if (!mode || mode === currentDisplayMode) return;
     if (mode !== 'none' && mode !== 'small' && mode !== 'fullscreen') return;
+    document.body.classList.remove('mode-' + currentDisplayMode);
     currentDisplayMode = mode;
-    document.body.className = 'mode-' + mode;
+    document.body.classList.add('mode-' + mode); // classList, not className — className would wipe out .has-card too
   }
 
   function doAction(name, actionArgs) {
