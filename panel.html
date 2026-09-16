@@ -55,15 +55,15 @@
 
   #current-actions { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
   #display-modes { position: relative; display: flex; align-items: center; gap: 6px; }
-  .pos-menu { right: 0; left: auto; min-width: 0; padding: 8px; }
+  .item-menu.pos-menu { right: 0; left: auto; min-width: 0; padding: 8px; }
   .pos-grid { display: grid; grid-template-columns: repeat(3, 26px); grid-template-rows: repeat(3, 26px); gap: 4px; }
   .pos-grid button {
     all: unset; box-sizing: border-box;
     width: 26px; height: 26px; border-radius: 5px;
-    background: #2b2f35; border: 1px solid #383d44; cursor: pointer;
+    background: #2b2f35; border: 1px solid #565d68; cursor: pointer;
   }
-  .pos-grid button:hover { background: #383d44; }
-  .pos-grid button.on { background: #24344f; border-color: #5b8cff; }
+  .pos-grid button:hover { background: #383d44; border-color: #7a828e; }
+  .pos-grid button.on { background: #24344f; border-color: #5b8cff; box-shadow: 0 0 0 1px #5b8cff; }
   #quick-bans { display: flex; gap: 6px; }
   .quick-ban-btn {
     width: 26px; height: 26px; flex-shrink: 0; padding: 0;
