@@ -65,6 +65,15 @@
   }
   .pos-grid button:hover { background: #383d44; border-color: rgba(255,255,255,0.7); }
   .pos-grid button.on { background: #24344f; border-color: #5b8cff; box-shadow: 0 0 0 1px #5b8cff; }
+  /* ID specificity so this wins over the base square .kebab-btn look regardless of
+     stylesheet order — matches the circular .bg-ctrl-btn style of its 3 siblings. */
+  #pos-kebab {
+    width: 26px; height: 26px; flex-shrink: 0; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: #2b2f35; border: 1px solid #383d44; border-radius: 50%;
+    color: #9aa0a8; cursor: pointer; font-size: 16px; line-height: 1;
+  }
+  #pos-kebab:hover { background: #383d44; color: #e6e6e6; }
   #quick-bans { display: flex; gap: 6px; }
   .quick-ban-btn {
     width: 26px; height: 26px; flex-shrink: 0; padding: 0;
