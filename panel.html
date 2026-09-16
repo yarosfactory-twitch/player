@@ -75,6 +75,7 @@
   .bg-ctrl-btn.danger:hover { background: #3a2626; border-color: #5a3535; color: #e07d7d; }
   .bg-ctrl-btn.on { background: #24344f; border-color: #3d5a8a; color: #7fa8ff; }
   .bg-ctrl-btn svg { width: 13px; height: 13px; }
+  .bg-ctrl-btn svg.fill-icon { fill: currentColor; }
 
   button { background: #2b2f35; color: #e6e6e6; border: 1px solid #383d44; border-radius: 4px; padding: 6px 10px; font-size: 12px; cursor: pointer; }
   button:hover { background: #383d44; }
@@ -392,8 +393,8 @@
           ${!isPlayingHere ? `<div class="bg-playlist-meta">${trackCount} треків · ${formatDuration(p.totalDuration)}</div>` : ''}
         </div>
         <div class="bg-playlist-controls">
-          <button type="button" class="bg-ctrl-btn" data-action="bg-play-toggle" data-id="${p.id}" title="${showingPause ? 'Пауза' : 'Відтворити'}">
-            <svg viewBox="0 0 24 24">${showingPause ? PAUSE_ICON : PLAY_ICON}</svg>
+          <button type="button" class="bg-ctrl-btn${isActive ? ' on' : ''}" data-action="bg-play-toggle" data-id="${p.id}" title="${showingPause ? 'Пауза' : 'Відтворити'}">
+            <svg class="fill-icon" viewBox="0 0 24 24">${showingPause ? PAUSE_ICON : PLAY_ICON}</svg>
           </button>
           <button type="button" class="bg-ctrl-btn${p.shuffle ? ' on' : ''}" data-action="bg-shuffle" data-id="${p.id}" title="Перемішати">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${SHUFFLE_ICON}</svg>
