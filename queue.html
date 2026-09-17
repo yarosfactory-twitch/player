@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>yarosfactory — черга музики</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh;
+    font-family: system-ui, sans-serif; background: #16181c; color: #e6e6e6;
+    padding: 24px 16px 60px;
+  }
+  .wrap { max-width: 560px; margin: 0 auto; }
+  header { text-align: center; margin-bottom: 28px; }
+  header h1 { font-size: 18px; margin: 0 0 4px; color: #f0f0f0; }
+  header a { color: #7fa8ff; text-decoration: none; font-size: 13px; }
+  header a:hover { text-decoration: underline; }
+
+  #status { text-align: center; font-size: 12px; color: #6b7178; margin-bottom: 18px; }
+  #status.stale { color: #d9534f; }
+
+  #now-playing {
+    background: #1f2226; border: 1px solid #2b2f35; border-radius: 12px;
+    padding: 18px; margin-bottom: 22px; display: none;
+  }
+  #now-playing .label { font-size: 11px; color: #9aa0a8; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px; }
+  #now-title { font-size: 19px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #now-sub { font-size: 14px; color: #9aa0a8; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  #empty { text-align: center; color: #6b7178; font-size: 13.5px; padding: 30px 0; }
+
+  #list { display: flex; flex-direction: column; gap: 8px; }
+  .track-item {
+    background: #1f2226; border: 1px solid #2b2f35; border-radius: 8px;
+    padding: 10px 14px; display: flex; align-items: center; gap: 12px;
+  }
+  .track-item .num { flex-shrink: 0; width: 22px; text-align: center; font-size: 12.5px; color: #6b7178; }
+  .track-item .text { min-width: 0; flex: 1; }
+  .track-item .t-title { font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .track-item .t-sub { font-size: 11.5px; color: #9aa0a8; margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🎵 yarosfactory — черга музики</h1>
+    <a href="https://twitch.tv/yarosfactory" target="_blank" rel="noopener">twitch.tv/yarosfactory</a>
+  </header>
+
+  <div id="status">Підключення…</div>
+
+  <div id="now-playing">
+    <div class="label">Зараз грає</div>
+    <div id="now-title"></div>
+    <div id="now-sub"></div>
+  </div>
+
+  <div id="empty" style="display:none;">Черга порожня.</div>
+  <div id="list"></div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script>
+  // Same Firebase project as the movies site — this page only ever reads
+  // queue/current (public by its own Firestore rule), never writes anything.
+  const firebaseConfig = {
+    apiKey: "AIzaSyDBsSNsFXlFymLW9VwB_TLBsKnqsR_GcPM",
+    authDomain: "yarosfactory-movies.firebaseapp.com",
+    projectId: "yarosfactory-movies",
+    storageBucket: "yarosfactory-movies.firebasestorage.app",
+    messagingSenderId: "616449635479",
+    appId: "1:616449635479:web:46a2f16bcc1e2e8b85a5d2"
+  };
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.firestore();
+
+  const statusEl = document.getElementById('status');
+  const nowPlayingEl = document.getElementById('now-playing');
+  const nowTitleEl = document.getElementById('now-title');
+  const nowSubEl = document.getElementById('now-sub');
+  const emptyEl = document.getElementById('empty');
+  const listEl = document.getElementById('list');
+
+  // If the backend goes quiet (stream ended, PC off) the doc stops updating —
+  // flag it as stale after a while so this doesn't just sit there looking live
+  // forever on stale data.
+  const STALE_AFTER_MS = 90 * 1000;
+  let staleTimer = null;
+  function armStaleTimer() {
+    clearTimeout(staleTimer);
+    statusEl.classList.remove('stale');
+    statusEl.textContent = 'Оновлюється наживо';
+    staleTimer = setTimeout(() => {
+      statusEl.classList.add('stale');
+      statusEl.textContent = 'Немає свіжих даних — стрім, схоже, не активний';
+    }, STALE_AFTER_MS);
+  }
+
+  function trackLabel(t) {
+    return t.title || 'Без назви';
+  }
+
+  function render(tracks) {
+    if (!tracks || tracks.length === 0) {
+      nowPlayingEl.style.display = 'none';
+      listEl.innerHTML = '';
+      emptyEl.style.display = 'block';
+      return;
+    }
+    emptyEl.style.display = 'none';
+
+    const current = tracks[0];
+    nowTitleEl.textContent = trackLabel(current);
+    nowSubEl.textContent = [current.artist, current.requestedBy ? ('замовив: ' + current.requestedBy) : '']
+      .filter(Boolean).join(' · ');
+    nowPlayingEl.style.display = 'block';
+
+    const upcoming = tracks.slice(1);
+    listEl.innerHTML = '';
+    upcoming.forEach((t, i) => {
+      const row = document.createElement('div');
+      row.className = 'track-item';
+
+      const num = document.createElement('div');
+      num.className = 'num';
+      num.textContent = String(i + 1);
+
+      const text = document.createElement('div');
+      text.className = 'text';
+      const titleEl = document.createElement('div');
+      titleEl.className = 't-title';
+      titleEl.textContent = trackLabel(t);
+      const subEl = document.createElement('div');
+      subEl.className = 't-sub';
+      subEl.textContent = [t.artist, t.requestedBy ? ('замовив: ' + t.requestedBy) : ''].filter(Boolean).join(' · ');
+      text.appendChild(titleEl);
+      text.appendChild(subEl);
+
+      row.appendChild(num);
+      row.appendChild(text);
+      listEl.appendChild(row);
+    });
+  }
+
+  db.collection('queue').doc('current').onSnapshot((snap) => {
+    armStaleTimer();
+    if (!snap.exists) { render([]); return; }
+    const data = snap.data() || {};
+    render(Array.isArray(data.tracks) ? data.tracks : []);
+  }, (err) => {
+    console.warn('Firestore error:', err.message);
+    statusEl.classList.add('stale');
+    statusEl.textContent = 'Не вдалося підключитись до черги.';
+  });
+</script>
+</body>
+</html>
